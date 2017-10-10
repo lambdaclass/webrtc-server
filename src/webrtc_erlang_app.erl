@@ -23,7 +23,7 @@ start(_StartType, _StartArgs) ->
                                            {'_', cowboy_static, {priv_file, webrtc_erlang, "/index.html"}}
                                            ]}
                                    ]),
-  {ok, _} = cowboy:start_clear(my_http_listener,
+  {ok, _} = cowboy:start_tls(my_http_listener,
                                [{port, config(port)},
                                 {certfile, config(certfile)},
                                 {keyfile, config(keyfile)}

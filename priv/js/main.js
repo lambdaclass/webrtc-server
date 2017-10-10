@@ -32,7 +32,7 @@ var sdpConstraints = {
 
 const room = window.location.pathname.split(/\//g)[1] ;
 console.log("room is", room);
-const wsUrl = 'ws://' + window.location.host + '/websocket/' + room;
+const wsUrl = 'wss://' + window.location.host + '/websocket/' + room;
 const socket = new WebSocket(wsUrl);
 
 function sendMessage(event, message) {
