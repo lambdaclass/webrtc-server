@@ -5,3 +5,6 @@ dev:
 
 test:
 	./rebar3 ct
+
+release:
+	./rebar3 release tar
