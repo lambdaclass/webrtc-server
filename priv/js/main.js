@@ -96,8 +96,11 @@ function offer (data) {
   pc.setRemoteDescription(new RTCSessionDescription(data));
   console.log('Sending answer to peer.');
   pc.createAnswer().then(
-    setLocalAndSendMessage,
-    onCreateSessionDescriptionError
+    function(sessionDescription) {
+      pc.setLocalDescription(sessionDescription);
+      sendMessage('offer', sessionDescription);
+    },
+    logEvent('Failed to create session description:')
   );
 }
 
@@ -159,15 +162,14 @@ function startRTC() {
     pc = new RTCPeerConnection(pcConfig);
     pc.onicecandidate = handleIceCandidate;
     pc.ontrack = handleRemoteStreamAdded;
-    pc.onremovestream = handleRemoteStreamRemoved;
+    pc.onremovestream = logEvent('Remote stream removed,');
     console.log('Created RTCPeerConnnection');
 
     pc.addStream(localStream);
     isStarted = true;
 
     if (isInitiator) {
-      console.log('Sending offer to peer');
-      pc.createOffer(setLocalAndSendMessage, handleCreateOfferError);
+      createOffer();
     }
   } catch (e) {
     console.log('Failed to create PeerConnection, exception: ' + e.message);
@@ -191,28 +193,23 @@ function handleIceCandidate(event) {
   }
 }
 
-function setLocalAndSendMessage(sessionDescription) {
-  pc.setLocalDescription(sessionDescription);
-  //use sessionDescription.type (offer/answer) as the event
-  sendMessage(sessionDescription.type, sessionDescription);
-}
-
 function handleRemoteStreamAdded(event) {
   console.log('Remote stream added.');
   remoteVideo.srcObject = event.streams[0];
   remoteStream = event.streams[0];
 }
 
-//// ERROR HANDLERS. TODO make single generic error handler
-
-function onCreateSessionDescriptionError(error) {
-  trace('Failed to create session description: ' + error.toString());
+function createOffer() {
+  console.log('Sending offer to peer');
+  pc.createOffer(function(sessionDescription) {
+    pc.setLocalDescription(sessionDescription);
+    sendMessage('offer', sessionDescription);
+  }, logEvent('createOffer() error:'));
 }
 
-function handleRemoteStreamRemoved(event) {
-  console.log('Remote stream removed. Event: ', event);
-}
-
-function handleCreateOfferError(event) {
-  console.log('createOffer() error: ', event);
+// event/error logger
+function logEvent(text) {
+  return function (data) {
+    console.log(text, data);
+  };
 }
