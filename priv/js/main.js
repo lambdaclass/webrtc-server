@@ -25,11 +25,11 @@ var pcConfig = {
  * General algorithm:
  * 1. get local stream
  * 2. connect to signaling server and wait for other client to connect
- * 3. when both peers are connected, start webRTC peer connection
+ * 3. when both peers are connected (socker receives joined message),
+ *    start webRTC peer connection
  */
 getStream()
-  .then(connectSocket)
-  .then(startRTC)
+  .then(() => connectSocket())
   .catch(console.log);
 
 function getStream() {
@@ -51,8 +51,12 @@ function getStream() {
 
 /////////////////////////////////////////////
 
+const room = window.location.pathname.split(/\//g)[1] ;
+console.log("room is", room);
+const wsUrl = 'wss://' + window.location.host + '/websocket/' + room;
 var socket;
 
+// helper to send ws messages with {event, data} structure
 function sendMessage(event, message) {
   const payload = {
     event,
@@ -62,111 +66,115 @@ function sendMessage(event, message) {
   socket.send(JSON.stringify(payload));
 }
 
+//// SOCKET EVENT LISTENERS
+
+// when theres one client connected, server consider the rooms as 'created'
+// thus, if a client gets created, it's the initiator
+function created () {
+  console.log('Created room, this client is initiator');
+  isInitiator = true;
+}
+
+// we're asssuming 1on1 conversations. when a client gets 'joined', then both
+// clients are connected => channel ready
+function joined () {
+  console.log('joined: ' + room);
+
+  // both users connected, so now we can move to next step, intiate the RTC communication
+  startRTC();
+}
+
+function candidate(data) {
+  var candidate = new RTCIceCandidate({
+    sdpMLineIndex: data.label,
+    candidate: data.candidate
+  });
+  pc.addIceCandidate(candidate);
+}
+
+function offer (data) {
+  pc.setRemoteDescription(new RTCSessionDescription(data));
+  console.log('Sending answer to peer.');
+  pc.createAnswer().then(
+    setLocalAndSendMessage,
+    onCreateSessionDescriptionError
+  );
+}
+
+function answer (data) {
+  pc.setRemoteDescription(new RTCSessionDescription(data));
+}
+
+function bye () {
+  if (isStarted) {
+    console.log('Session terminated.');
+    isStarted = false;
+    pc.close();
+    pc = null;
+
+    // assumption: if other client leaves and this one stays, it becomes the initiator
+    // if another users attempts to join again
+    isInitiator = true;
+  }
+}
+
 /*
  * Connect the socket and set up its listeners.
  * Will return a promise that resolves once both clients are connected.
  */
 function connectSocket() {
-  const room = window.location.pathname.split(/\//g)[1] ;
-  console.log("room is", room);
-  const wsUrl = 'wss://' + window.location.host + '/websocket/' + room;
-
   // setting global var, sorry
   socket = new WebSocket(wsUrl);
-  return new Promise(function (resolve, reject) {
-    // when theres one client connected, server consider the rooms as 'created'
-    // thus, if a client gets created, it's the initiator
-    function created () {
-      console.log('Created room, this client is initiator');
-      isInitiator = true;
-    }
 
-    // we're asssuming 1on1 conversations. when a client gets 'joined', then both
-    // clients are connected => channel ready
-    function joined () {
-      console.log('joined: ' + room);
+  socket.onopen = function(event) {
+    console.log('socket connected');
+  };
 
-      // both users connected, so now we can move to next step
-      resolve();
-    }
+  const listeners = {
+    created,
+    joined,
+    candidate,
+    offer,
+    answer,
+    bye
+  };
 
-    function candidate(data) {
-      var candidate = new RTCIceCandidate({
-        sdpMLineIndex: data.label,
-        candidate: data.candidate
-      });
-      pc.addIceCandidate(candidate);
-    }
+  socket.onmessage = function(e) {
+    const data = JSON.parse(e.data);
+    console.log('Client received message:', data);
+    listeners[data.event](data.data);
+  };
 
-    function offer (data) {
-      pc.setRemoteDescription(new RTCSessionDescription(data));
-      console.log('Sending answer to peer.');
-      pc.createAnswer().then(
-        setLocalAndSendMessage,
-        onCreateSessionDescriptionError
-      );
-    }
-
-    function answer (data) {
-      pc.setRemoteDescription(new RTCSessionDescription(data));
-    }
-
-    function bye () {
-      if (isStarted) {
-        console.log('Session terminated.');
-        stop();
-        isInitiator = false;
-      }
-    }
-
-    const listeners = {
-      created,
-      joined,
-      candidate,
-      offer,
-      answer,
-      bye
-    };
-
-    socket.onopen = function(event) {
-      console.log('socket connected');
-    };
-
-    socket.onmessage = function(e) {
-      const data = JSON.parse(e.data);
-      console.log('Client received message:', data);
-      listeners[data.event](data.data);
-    };
-  });
+  window.onbeforeunload = function() {
+    sendMessage('bye');
+  };
 }
 
 ////////////////////////////////////////////////////
 
 function startRTC() {
   console.log('>>>>>> creating peer connection');
+
   try {
     pc = new RTCPeerConnection(pcConfig);
     pc.onicecandidate = handleIceCandidate;
     pc.ontrack = handleRemoteStreamAdded;
     pc.onremovestream = handleRemoteStreamRemoved;
     console.log('Created RTCPeerConnnection');
+
+    pc.addStream(localStream);
+    isStarted = true;
+
+    if (isInitiator) {
+      console.log('Sending offer to peer');
+      pc.createOffer(setLocalAndSendMessage, handleCreateOfferError);
+    }
   } catch (e) {
     console.log('Failed to create PeerConnection, exception: ' + e.message);
     alert('Cannot create RTCPeerConnection object.');
     return;
   }
-  pc.addStream(localStream);
-  isStarted = true;
-
-  if (isInitiator) {
-    console.log('Sending offer to peer');
-    pc.createOffer(setLocalAndSendMessage, handleCreateOfferError);
-  }
 }
-
-window.onbeforeunload = function() {
-  sendMessage('bye');
-};
 
 //// PeerConnection handlers
 
@@ -183,36 +191,28 @@ function handleIceCandidate(event) {
   }
 }
 
-function handleCreateOfferError(event) {
-  console.log('createOffer() error: ', event);
-}
-
 function setLocalAndSendMessage(sessionDescription) {
   pc.setLocalDescription(sessionDescription);
-  console.log('setLocalAndSendMessage sending message', sessionDescription);
-
   //use sessionDescription.type (offer/answer) as the event
   sendMessage(sessionDescription.type, sessionDescription);
 }
 
-function onCreateSessionDescriptionError(error) {
-  trace('Failed to create session description: ' + error.toString());
-}
-
 function handleRemoteStreamAdded(event) {
   console.log('Remote stream added.');
-  if(!remoteVideo.srcObject) {
-    remoteVideo.srcObject = event.streams[0];
-    remoteStream = event.streams[0];
-  }
+  remoteVideo.srcObject = event.streams[0];
+  remoteStream = event.streams[0];
+}
+
+//// ERROR HANDLERS. TODO make single generic error handler
+
+function onCreateSessionDescriptionError(error) {
+  trace('Failed to create session description: ' + error.toString());
 }
 
 function handleRemoteStreamRemoved(event) {
   console.log('Remote stream removed. Event: ', event);
 }
 
-function stop() {
-  isStarted = false;
-  pc.close();
-  pc = null;
+function handleCreateOfferError(event) {
+  console.log('createOffer() error: ', event);
 }
