@@ -11,7 +11,7 @@ init(Req, _) ->
   {cowboy_websocket, Req, #{room => Room, authenticated => false}}.
 
 websocket_init(State) ->
-  Time = application:get_env(webrtc_erlang, ws_auth_delay, 300),
+  Time = application:get_env(webrtc_server, ws_auth_delay, 300),
 
   %% give the ws some time to authenticate before disconnecting it
   timer:send_after(Time, check_auth),
@@ -65,7 +65,7 @@ reply_text(Event) ->
   {text, jsx:encode(#{event => Event})}.
 
 authenticate(Data) ->
-  {ok, {AuthMod, AuthFun}} = application:get_env(webrtc_erlang, auth_fun),
+  {ok, {AuthMod, AuthFun}} = application:get_env(webrtc_server, auth_fun),
   try jsx:decode(Data, [return_maps, {labels, attempt_atom}]) of
     #{event := <<"authenticate">>, data := #{username := User, password := Password}} ->
       case AuthMod:AuthFun(User) of

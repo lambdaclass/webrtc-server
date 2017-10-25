@@ -1,4 +1,4 @@
-# webrtc_erlang
+# webrtc-server
 
 An OTP application to make video calls using [WebRTC](https://webrtc.org/). It includes a STUN/TURN server using [processone/stun](https://github.com/processone/stun).
 
@@ -50,7 +50,7 @@ Update the configuration in `conf/sys.config`:
 
     make release
 
-Unpack the generated tar and `bin/webrtc_erlang start`.
+Unpack the generated tar and `bin/webrtc_server start`.
 
 ### Firewall setup for STUN/TURN
 
