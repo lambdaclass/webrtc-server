@@ -6,16 +6,19 @@ var localStream;
 var pc;
 var remoteStream;
 
+var username = 'username';
+var password = 'password';
+
 var localVideo = document.querySelector('#localVideo');
 var remoteVideo = document.querySelector('#remoteVideo');
 
 const stunUrl = 'stun:' + window.location.hostname + ':3478';
 const turnUrl = 'turn:' + window.location.hostname + ':3478';
 var pcConfig = {
-  'iceServers': [{
-    'urls': turnUrl,
-    'username': 'username',
-    'credential': 'credential'
+  iceServers: [{
+    urls: turnUrl,
+    username: username,
+    credential: password
   },{
     urls: stunUrl
   }]
@@ -24,8 +27,9 @@ var pcConfig = {
 /**
  * General algorithm:
  * 1. get local stream
- * 2. connect to signaling server and wait for other client to connect
- * 3. when both peers are connected (socker receives joined message),
+ * 2. connect to signaling server
+ * 3. authenticate and wait for other client to connect
+ * 4. when both peers are connected (socker receives joined message),
  *    start webRTC peer connection
  */
 getStream()
@@ -131,6 +135,11 @@ function connectSocket() {
 
   socket.onopen = function(event) {
     console.log('socket connected');
+    sendMessage('authenticate', {username, password});
+  };
+
+  socket.onclose = function(event) {
+    console.log('socket was closed', event);
   };
 
   const listeners = {
@@ -145,7 +154,12 @@ function connectSocket() {
   socket.onmessage = function(e) {
     const data = JSON.parse(e.data);
     console.log('Client received message:', data);
-    listeners[data.event](data.data);
+    const listener = listeners[data.event];
+    if (listener) {
+      listener(data.data);
+    } else {
+      console.log('no listener for message', data.event);
+    }
   };
 
   window.onbeforeunload = function() {

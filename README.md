@@ -19,6 +19,12 @@ The function will ba called like `module:function(Username)`, and
 should return the expected password for the given Username. The
 password will compared to the one sent by the clients.
 
+The implementation of this function will depend on how this
+application is expected to be deployed. It could just return a fixed
+password from configuration, encode the username using a secret shared
+with the application server, lookup the password on a common
+datastore, etc.
+
 ## Websockets API for signaling
 
 TODO
