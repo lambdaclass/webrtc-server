@@ -8,24 +8,30 @@
 
 init(Req, _) ->
   Room  = cowboy_req:binding(room, Req),
-  {cowboy_websocket, Req, #{room => Room}}.
+  {cowboy_websocket, Req, #{room => Room, authenticated => false}}.
 
 websocket_init(State) ->
-  Room = maps:get(room, State),
-  syn:join(Room, self()),
+  Time = application:get_env(webrtc_server, ws_auth_delay, 300),
 
-  %% client needs to know if it's the initiator
-  Members = syn:get_members(Room),
-  case length(Members) of
-    1 ->
-      {reply, reply_text(created), State};
-    _ ->
-      syn:publish(Room, reply_text(joined)),
-      {ok, State}
-  end.
+  %% give the ws some time to authenticate before disconnecting it
+  timer:send_after(Time, check_auth),
+  {ok, State}.
 
-websocket_handle(Frame = {text, Text}, State) ->
-  lager:debug("Received text frame ~p", [Frame]),
+websocket_handle({text, Text}, State = #{authenticated := false}) ->
+   case authenticate(Text) of
+     success ->
+       lager:debug("socket authenticated"),
+       State2 = State#{authenticated => true},
+       Room = maps:get(room, State2),
+       CreatedOrJoined = join_room(Room),
+       syn:publish(Room, reply_text(CreatedOrJoined)),
+       {ok, State2};
+     Reason ->
+       lager:debug("bad authentication: ~p ~p", [Reason, Text]),
+       {reply, reply_text(unauthorized), State}
+   end;
+websocket_handle({text, Text}, State = #{authenticated := true}) ->
+  lager:debug("Received text frame ~p", [Text]),
 
   %% send to all other pids in group
   Room = maps:get(room, State),
@@ -38,16 +44,45 @@ websocket_handle(Frame = {text, Text}, State) ->
   lists:foreach(Send, Members),
   {ok, State};
 websocket_handle(Frame, State) ->
-  lager:warn("Received non text frame ~p", [Frame]),
+  lager:warning("Received non text frame ~p~p", [Frame, State]),
   {ok, State}.
 
-websocket_info({text, Text}, State) ->
+websocket_info(check_auth, State = #{authenticated := false}) ->
+  lager:debug("disconnecting unauthenticated socket"),
+  {stop, State};
+websocket_info(check_auth, State) ->
+  %% already authenticated, do nothing
+  {ok, State};
+websocket_info({text, Text}, State = #{authenticated := true}) ->
   lager:debug("Sending to client ~p", [Text]),
   {reply, {text, Text}, State};
 websocket_info(Info, State) ->
-  lager:warn("Received unexpected info ~p", [Info]),
+  lager:warning("Received unexpected info ~p~p", [Info, State]),
   {ok, State}.
 
 %%% internal
 reply_text(Event) ->
   {text, jsx:encode(#{event => Event})}.
+
+authenticate(Data) ->
+  {ok, {AuthMod, AuthFun}} = application:get_env(webrtc_server, auth_fun),
+  try jsx:decode(Data, [return_maps, {labels, attempt_atom}]) of
+    #{event := <<"authenticate">>, data := #{username := User, password := Password}} ->
+      case AuthMod:AuthFun(User) of
+        Password -> success;
+        _ -> wrong_credentials
+      end;
+    _ -> invalid_format
+  catch
+    Type:Error ->
+      lager:debug("invalid json ~p ~p", [Type, Error]),
+      invalid_json
+  end.
+
+join_room(Room) ->
+  syn:join(Room, self()),
+  Members = syn:get_members(Room),
+  case length(Members) of
+    1 -> created;
+    _ -> joined
+  end.
