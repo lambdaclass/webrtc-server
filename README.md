@@ -60,3 +60,19 @@ iptables -A INPUT -p tcp --dport 5349 -j ACCEPT
 iptables -A INPUT -p udp --dport 5349 -j ACCEPT
 iptables -A INPUT -p udp --dport 49152:65535 -j ACCEPT
 ```
+
+## Mac build error
+
+This error while building on mac OS:
+
+``` 
+_build/default/lib/fast_tls/c_src/fast_tls.c:21:10: fatal error: 'openssl/err.h' file not found
+```
+
+Is solving by exporting some openssl flags:
+
+```
+export LDFLAGS="-L/usr/local/opt/openssl/lib"
+export CFLAGS="-I/usr/local/opt/openssl/include/"
+export CPPFLAGS="-I/usr/local/opt/openssl/include/"
+```
