@@ -69,7 +69,7 @@ This error while building on mac OS:
 _build/default/lib/fast_tls/c_src/fast_tls.c:21:10: fatal error: 'openssl/err.h' file not found
 ```
 
-Is solving by exporting some openssl flags:
+Is solved by exporting some openssl flags:
 
 ```
 export LDFLAGS="-L/usr/local/opt/openssl/lib"
