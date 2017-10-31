@@ -45,8 +45,11 @@ Update the configuration in `conf/sys.config`:
 * port: set to 443 for HTTPS.
 * certfile: absolute path to the certificate file.
 * keyfile: absolute path to the key file.
-* auth_realm: domain where it will be deployed, required for turn.
-* turn_ip: IP of the server where it will be deployed, required for turn.
+* hostname: name of the host where the app will be deployed. Will be
+  used as the `auth_realm` for stun and to lookup the `turn_ip`
+* turn_ip: IP of the server where the app will be deployed. If not
+  provided, will default to the first result of
+  `inet_res:lookup(Hostname, in, a)`
 
 ### Build a release
 
