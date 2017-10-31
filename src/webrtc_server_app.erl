@@ -43,10 +43,14 @@ config(Key) ->
 get_stun_auth_fun() ->
   {AuthMod, AuthFun} = config(auth_fun),
   fun (User, _Realm) ->
-      lager:info("TURN AUTHENTICATION ~p", [User]),
+      lager:debug("Stun authentication for  ~p", [User]),
+      %% the stun app considers <<"">> as an auth failure
       try
-        AuthMod:AuthFun(User)
+        case AuthMod:AuthFun(User) of
+          Password when is_binary(Password) -> Password;
+          _ -> <<"">>
+        end
       catch
-        _:_ -> auth_error
+        _:_ -> <<"">>
       end
   end.

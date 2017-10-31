@@ -17,7 +17,9 @@ Example:
 
 The function will ba called like `module:function(Username)`, and
 should return the expected password for the given Username. The
-password will compared to the one sent by the clients.
+password will compared to the one sent by the clients. Auth will be
+considered failed if the result value is not a binary or the function
+throws an error.
 
 The implementation of this function will depend on how this
 application is expected to be deployed. It could just return a fixed
@@ -66,7 +68,7 @@ iptables -A INPUT -p udp --dport 49152:65535 -j ACCEPT
 
 This error while building on mac OS:
 
-``` 
+```
 _build/default/lib/fast_tls/c_src/fast_tls.c:21:10: fatal error: 'openssl/err.h' file not found
 ```
 
