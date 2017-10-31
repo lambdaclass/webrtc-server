@@ -68,9 +68,6 @@ authenticate(Data) ->
   try jsx:decode(Data, [return_maps, {labels, attempt_atom}]) of
     #{event := <<"authenticate">>, data := #{username := User, password := Password}} ->
       case safe_auth(User) of
-        %% FIXME allowing auth error here just to test turn, REMOVE
-        error -> success;
-        auth_error -> success;
         Password -> success;
         _ -> wrong_credentials
       end;
