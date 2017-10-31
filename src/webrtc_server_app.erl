@@ -43,5 +43,10 @@ config(Key) ->
 get_stun_auth_fun() ->
   {AuthMod, AuthFun} = config(auth_fun),
   fun (User, _Realm) ->
-      AuthMod:AuthFun(User)
+      lager:info("TURN AUTHENTICATION ~p", [User]),
+      try
+        AuthMod:AuthFun(User)
+      catch
+        _:_ -> auth_error
+      end
   end.

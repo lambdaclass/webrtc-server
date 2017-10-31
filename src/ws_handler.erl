@@ -7,7 +7,7 @@
         ]).
 
 init(Req, _) ->
-  Room  = cowboy_req:binding(room, Req),
+  Room = cowboy_req:binding(room, Req),
   {cowboy_websocket, Req, #{room => Room, authenticated => false}}.
 
 websocket_init(State) ->
@@ -65,10 +65,12 @@ reply_text(Event) ->
   {text, jsx:encode(#{event => Event})}.
 
 authenticate(Data) ->
-  {ok, {AuthMod, AuthFun}} = application:get_env(webrtc_server, auth_fun),
   try jsx:decode(Data, [return_maps, {labels, attempt_atom}]) of
     #{event := <<"authenticate">>, data := #{username := User, password := Password}} ->
-      case AuthMod:AuthFun(User) of
+      case safe_auth(User) of
+        %% FIXME allowing auth error here just to test turn, REMOVE
+        error -> success;
+        auth_error -> success;
         Password -> success;
         _ -> wrong_credentials
       end;
@@ -85,4 +87,13 @@ join_room(Room) ->
   case length(Members) of
     1 -> created;
     _ -> joined
+  end.
+
+safe_auth(Username) ->
+  {ok, {AuthMod, AuthFun}} = application:get_env(webrtc_server, auth_fun),
+  try
+    AuthMod:AuthFun(Username)
+  catch
+    _:_ ->
+      auth_error
   end.

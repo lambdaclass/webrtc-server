@@ -6,7 +6,7 @@ var localStream;
 var pc;
 var remoteStream;
 
-var username = 'username';
+var username = prompt('username');
 var password = 'password';
 
 var localVideo = document.querySelector('#localVideo');
