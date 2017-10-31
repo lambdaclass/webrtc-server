@@ -25,6 +25,7 @@ start(_StartType, _StartArgs) ->
                             ),
   syn:init(),
   stun_listener:add_listener(3478, udp, [{use_turn, true},
+                                         {turn_ip, config(turn_ip)},
                                          {certfile, config(certfile)},
                                          {auth_type, user},
                                          {auth_realm, config(auth_realm)},

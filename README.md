@@ -44,6 +44,7 @@ Update the configuration in `conf/sys.config`:
 * certfile: absolute path to the certificate file.
 * keyfile: absolute path to the key file.
 * auth_realm: domain where it will be deployed, required for turn.
+* turn_ip: IP of the server where it will be deployed, required for turn.
 
 ### Build a release
 
