@@ -1,4 +1,4 @@
--module(ws_handler).
+-module(webrtc_ws_handler).
 
 -export([init/2,
          websocket_init/1,

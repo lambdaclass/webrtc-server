@@ -12,7 +12,7 @@ start(_StartType, _StartArgs) ->
                                     {'_', [
                                            {"/js/[...]", cowboy_static, {priv_dir, webrtc_server, "/js"}},
                                            {"/css/[...]", cowboy_static, {priv_dir, webrtc_server, "/css"}},
-                                           {"/websocket/:room", ws_handler, []},
+                                           {"/websocket/:room", webrtc_ws_handler, []},
                                            {'_', cowboy_static, {priv_file, webrtc_server, "/index.html"}}
                                           ]}
                                    ]),
