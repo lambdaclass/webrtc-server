@@ -27,6 +27,23 @@ password from configuration, encode the username using a secret shared
 with the application server, lookup the password on a common
 datastore, etc.
 
+### callbacks
+webrtc_server allows to define callback functions that will be
+triggered when users enter or leave a room. This can be useful to
+track conversation state (such as when a call starts or end), without
+needing extra work in the clients.
+
+``` erlang
+{create_callback, {module, function}}
+{join_callback, {module, function}}
+{leave_callback, {module, function}}
+```
+
+The three callbacks receive the same arguments:
+    * Room: name of the room used to connect.
+    * Username: username provided by the client executing the action.
+    * OtherUsers: list of the rest of the usernames currently in the room.
+
 ## Websockets API for signaling
 
 TODO

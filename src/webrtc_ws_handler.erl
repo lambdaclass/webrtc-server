@@ -3,7 +3,8 @@
 -export([init/2,
          websocket_init/1,
          websocket_handle/2,
-         websocket_info/2
+         websocket_info/2,
+         terminate/3
         ]).
 
 init(Req, _) ->
@@ -19,11 +20,11 @@ websocket_init(State) ->
 
 websocket_handle({text, Text}, State = #{authenticated := false}) ->
    case authenticate(Text) of
-     success ->
+     {success, Username} ->
        lager:debug("socket authenticated"),
-       State2 = State#{authenticated => true},
+       State2 = State#{authenticated => true, username => Username},
        Room = maps:get(room, State2),
-       CreatedOrJoined = join_room(Room),
+       CreatedOrJoined = join_room(Room, Username),
        syn:publish(Room, reply_text(CreatedOrJoined)),
        {ok, State2};
      Reason ->
@@ -60,15 +61,24 @@ websocket_info(Info, State) ->
   lager:warning("Received unexpected info ~p~p", [Info, State]),
   {ok, State}.
 
+terminate(_Reason, _Req, #{room := Room, username := Username}) ->
+  OtherUsers = [Name || {Pid, Name} <- syn:get_members(Room, with_meta), Pid /= self()],
+  run_callback(leave_callback, Room, Username, OtherUsers),
+  syn:publish(Room, reply_text(left, #{username => Username})),
+  ok.
+
 %%% internal
 reply_text(Event) ->
   {text, jsx:encode(#{event => Event})}.
+
+reply_text(Event, Data) ->
+  {text, jsx:encode(#{event => Event, data => Data})}.
 
 authenticate(Data) ->
   try jsx:decode(Data, [return_maps, {labels, attempt_atom}]) of
     #{event := <<"authenticate">>, data := #{username := User, password := Password}} ->
       case safe_auth(User) of
-        Password -> success;
+        Password -> {success, User};
         _ -> wrong_credentials
       end;
     _ -> invalid_format
@@ -78,12 +88,16 @@ authenticate(Data) ->
       invalid_json
   end.
 
-join_room(Room) ->
-  syn:join(Room, self()),
-  Members = syn:get_members(Room),
-  case length(Members) of
-    1 -> created;
-    _ -> joined
+join_room(Room, Username) ->
+  syn:join(Room, self(), Username),
+  OtherUsers = [Name || {Pid, Name} <- syn:get_members(Room, with_meta), Pid /= self()],
+  case length(OtherUsers) of
+    0 ->
+      run_callback(create_callback, Room, Username, OtherUsers),
+      created;
+    _ ->
+      run_callback(join_callback, Room, Username, OtherUsers),
+      joined
   end.
 
 safe_auth(Username) ->
@@ -93,4 +107,14 @@ safe_auth(Username) ->
   catch
     _:_ ->
       auth_error
+  end.
+
+run_callback(Type, Room, Username, CurrentUsers) ->
+  {ok, {Module, Function}} = application:get_env(webrtc_server, Type),
+  try
+    Module:Function(Room, Username, CurrentUsers)
+  catch
+    ErrorType:Error ->
+      lager:warning("Error running ~p callback ~p/~p: ~p ~p",
+                    [Type, Room, Username, ErrorType, Error])
   end.
