@@ -112,12 +112,14 @@ function answer (data) {
   pc.setRemoteDescription(new RTCSessionDescription(data));
 }
 
-function bye () {
+function left () {
   if (isStarted) {
     console.log('Session terminated.');
     isStarted = false;
     pc.close();
     pc = null;
+    remoteStream = undefined;
+    remoteVideo.srcObject = undefined;
 
     // assumption: if other client leaves and this one stays, it becomes the initiator
     // if another users attempts to join again
@@ -145,10 +147,10 @@ function connectSocket() {
   const listeners = {
     created,
     joined,
+    left,
     candidate,
     offer,
-    answer,
-    bye
+    answer
   };
 
   socket.onmessage = function(e) {
@@ -162,9 +164,6 @@ function connectSocket() {
     }
   };
 
-  window.onbeforeunload = function() {
-    sendMessage('bye');
-  };
 }
 
 ////////////////////////////////////////////////////
