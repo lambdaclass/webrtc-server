@@ -1,4 +1,4 @@
-# webrtc-server
+# webrtc-server [![Build Status](https://travis-ci.org/lambdaclass/webrtc-server.svg?branch=master)](https://travis-ci.org/lambdaclass/webrtc-server)
 
 An OTP application to make video calls using [WebRTC](https://webrtc.org/). It includes a STUN/TURN server using [processone/stun](https://github.com/processone/stun).
 
