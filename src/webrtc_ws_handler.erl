@@ -65,6 +65,8 @@ terminate(_Reason, _Req, #{room := Room, username := Username}) ->
   OtherUsers = [Name || {Pid, Name} <- syn:get_members(Room, with_meta), Pid /= self()],
   run_callback(leave_callback, Room, Username, OtherUsers),
   syn:publish(Room, reply_text(left, #{username => Username})),
+  ok;
+terminate(_Reason, _Req, _State) ->
   ok.
 
 %%% internal
@@ -110,11 +112,15 @@ safe_auth(Username) ->
   end.
 
 run_callback(Type, Room, Username, CurrentUsers) ->
-  {ok, {Module, Function}} = application:get_env(webrtc_server, Type),
-  try
-    Module:Function(Room, Username, CurrentUsers)
-  catch
-    ErrorType:Error ->
-      lager:warning("Error running ~p callback ~p/~p: ~p ~p",
-                    [Type, Room, Username, ErrorType, Error])
+  case application:get_env(webrtc_server, Type) of
+    {ok, {Module, Function}} ->
+      try
+        Module:Function(Room, Username, CurrentUsers)
+      catch
+        ErrorType:Error ->
+          lager:warning("Error running ~p callback ~p/~p: ~p ~p",
+                        [Type, Room, Username, ErrorType, Error])
+      end;
+    undefined ->
+      ok
   end.
