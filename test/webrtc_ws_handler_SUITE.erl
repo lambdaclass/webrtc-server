@@ -3,18 +3,26 @@
 
 -compile(export_all).
 
+%% callbacks
+auth_fun(_Username) ->
+  %% password hardcoded for all users
+  <<"password">>.
+
+create_callback(Room, Username, OtherUsers) ->
+  ets:insert(callback_log, {Username, create, Room,  OtherUsers}).
+
+join_callback(Room, Username, OtherUsers) ->
+  ets:insert(callback_log, {Username, join, Room,  OtherUsers}).
+
+leave_callback(Room, Username, OtherUsers) ->
+  ets:insert(callback_log, {Username, leave, Room,  OtherUsers}).
+
 all() ->
   [
    join_and_send_message,
    auth_failure,
-   create_callback,
-   join_callback,
-   leave_callback
+   callbacks
   ].
-
-auth_fun(_Username) ->
-  %% password hardcoded for all users
-  <<"password">>.
 
 init_per_suite(Config) ->
   application:set_env(webrtc_server, auth_fun, {webrtc_ws_handler_SUITE, auth_fun}),
@@ -55,6 +63,7 @@ join_and_send_message(Config) ->
                <<"data">> => #{<<"username">> => User2,
                                <<"password">> => <<"password">>}},
   {ok, #{<<"event">> := <<"joined">>}} = ws_client:send(Conn2, AuthData2),
+  {ok, #{<<"event">> := <<"joined">>}} = ws_client:recv(Conn1),
 
   %% user 1 sends message, user 2 receives
   ws_client:send(Conn1, #{<<"event">> => <<"hello!">>}),
@@ -70,16 +79,63 @@ join_and_send_message(Config) ->
 
   ok.
 
-auth_failure(_Config) ->
+auth_failure(Config) ->
+  Url = proplists:get_value(url, Config),
+  User1 = proplists:get_value(user1, Config),
+  User2 = proplists:get_value(user2, Config),
+
+  %% user 1 joins and auths -> created
+  {ok, Conn1} = ws_client:start_link(Url),
+  AuthData = #{<<"event">> => <<"authenticate">>,
+               <<"data">> => #{<<"username">> => User1,
+                               <<"password">> => <<"WRONG!">>}},
+  {ok, #{<<"event">> := <<"unauthorized">>}} = ws_client:send(Conn1, AuthData),
+
+  %% user 2 joins and auths -> joined
+  {ok, Conn2} = ws_client:start_link(Url),
+  AuthData2 = #{<<"event">> => <<"authenticate">>,
+                <<"data">> => #{<<"username">> => User2,
+                                <<"password">> => <<"password">>}},
+  {ok, #{<<"event">> := <<"created">>}} = ws_client:send(Conn2, AuthData2),
   ok.
 
-create_callback(_Config) ->
-  ok.
+callbacks(Config) ->
+  application:set_env(webrtc_server, create_callback, {webrtc_ws_handler_SUITE, create_callback}),
+  application:set_env(webrtc_server, join_callback, {webrtc_ws_handler_SUITE, join_callback}),
+  application:set_env(webrtc_server, leave_callback, {webrtc_ws_handler_SUITE, leave_callback}),
 
-join_callback(_Config) ->
-  ok.
+  Url = proplists:get_value(url, Config),
+  User1 = proplists:get_value(user1, Config),
+  User2 = proplists:get_value(user2, Config),
+  Room = proplists:get_value(room, Config),
 
-leave_callback(_Config) ->
+  ets:new(callback_log, [named_table, public, bag]),
+
+  %% user 1 creates the room
+  {ok, Conn1} = ws_client:start_link(Url),
+  AuthData = #{<<"event">> => <<"authenticate">>,
+               <<"data">> => #{<<"username">> => User1,
+                               <<"password">> => <<"password">>}},
+  {ok, #{<<"event">> := <<"created">>}} = ws_client:send(Conn1, AuthData),
+
+  %% user 2 joins
+  {ok, Conn2} = ws_client:start_link(Url),
+  AuthData2 = #{<<"event">> => <<"authenticate">>,
+               <<"data">> => #{<<"username">> => User2,
+                               <<"password">> => <<"password">>}},
+  {ok, #{<<"event">> := <<"joined">>}} = ws_client:send(Conn2, AuthData2),
+  {ok, #{<<"event">> := <<"joined">>}} = ws_client:recv(Conn1),
+
+  %% users leave the room
+  ws_client:stop(Conn1),
+  timer:sleep(100),
+  ws_client:stop(Conn2),
+  timer:sleep(100),
+
+  [{User1, create, Room, []},
+   {User1, leave, Room, [User2]}] = ets:lookup(callback_log, User1),
+  [{User2, join, Room, [User1]},
+   {User2, leave, Room, []}] = ets:lookup(callback_log, User2),
   ok.
 
 %% internal

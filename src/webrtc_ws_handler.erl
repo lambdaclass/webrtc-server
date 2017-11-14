@@ -65,6 +65,8 @@ terminate(_Reason, _Req, #{room := Room, username := Username}) ->
   OtherUsers = [Name || {Pid, Name} <- syn:get_members(Room, with_meta), Pid /= self()],
   run_callback(leave_callback, Room, Username, OtherUsers),
   syn:publish(Room, reply_text(left, #{username => Username})),
+  ok;
+terminate(_Reason, _Req, _State) ->
   ok.
 
 %%% internal
