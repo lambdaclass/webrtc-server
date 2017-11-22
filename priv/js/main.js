@@ -102,7 +102,7 @@ function offer (data) {
   pc.createAnswer().then(
     function(sessionDescription) {
       pc.setLocalDescription(sessionDescription);
-      sendMessage('offer', sessionDescription);
+      sendMessage('answer', sessionDescription);
     },
     logEvent('Failed to create session description:')
   );
