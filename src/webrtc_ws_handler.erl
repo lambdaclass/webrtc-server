@@ -9,7 +9,10 @@
 
 init(Req, _) ->
   Room = cowboy_req:binding(room, Req),
-  {cowboy_websocket, Req, #{room => Room, authenticated => false}}.
+  IdleTimeout = application:get_env(webrtc_server, idle_timeout, 60000),
+  {cowboy_websocket, Req,
+   #{room => Room, authenticated => false},
+   #{idle_timeout => IdleTimeout}}.
 
 websocket_init(State) ->
   Time = application:get_env(webrtc_server, ws_auth_delay, 300),

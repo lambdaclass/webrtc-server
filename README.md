@@ -44,6 +44,23 @@ The three callbacks receive the same arguments:
     * Username: username provided by the client executing the action.
     * OtherUsers: list of the rest of the usernames currently in the room.
 
+### server configuration
+
+* port: port used to serve the signaling server and the example client.
+* certfile: path to the certificate file for the signaling server and
+  example client.
+* keyfile: path to the key file for the signaling server and
+  example client.
+* hostname: name of the host where the app will be deployed. Will be
+  used as the `auth_realm` for stun and to lookup the `turn_ip`
+* turn_ip: IP of the server where the app will be deployed. If not
+  provided, will default to the first result of
+  `inet_res:lookup(Hostname, in, a)`
+* idle_timeout: cowboy configuration for the websocket
+  connections. By default will disconnect idle sockets after a
+  minute (thus requiring the clients to periodically send a ping). Use
+  `infinity` to prevent disconnections.
+
 ## Websockets API for signaling
 
 TODO
@@ -52,27 +69,20 @@ TODO
 
     make dev
 
-The app will run on `https://localhost:8443/:room`
+The example app will run on `https://localhost:8443/:room`
 
 ## Run in production
 
-### Configuration
-Update the configuration in `conf/sys.config`:
-
-* port: set to 443 for HTTPS.
-* certfile: absolute path to the certificate file.
-* keyfile: absolute path to the key file.
-* hostname: name of the host where the app will be deployed. Will be
-  used as the `auth_realm` for stun and to lookup the `turn_ip`
-* turn_ip: IP of the server where the app will be deployed. If not
-  provided, will default to the first result of
-  `inet_res:lookup(Hostname, in, a)`
-
-### Build a release
+To run the example app stand alone in a production server, update the
+relevant configuration in `conf/sys.config` (port, certs, host, etc.)
+and run:
 
     make release
 
 Unpack the generated tar and `bin/webrtc_server start`.
+
+Alternatively, the webrtc_server application can be included as a
+dependency in another project.
 
 ### Firewall setup for STUN/TURN
 
