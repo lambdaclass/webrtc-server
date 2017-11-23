@@ -25,9 +25,11 @@ all() ->
   ].
 
 init_per_suite(Config) ->
+  Port = 8444,
+  start_cowboy(8444),
   application:set_env(webrtc_server, auth_fun, {webrtc_ws_handler_SUITE, auth_fun}),
   application:ensure_all_started(webrtc_server),
-  Config.
+  [{port, Port} | Config].
 
 end_per_suite(_Config) ->
   ok.
@@ -36,7 +38,10 @@ init_per_testcase(_TestCase, Config) ->
   User1 = random_name(<<"User1">>),
   User2 = random_name(<<"User2">>),
   Room = random_name(<<"Room">>),
-  Url = <<"wss://localhost:8443/websocket/", Room/binary>>,
+  Port = proplists:get_value(port, Config),
+  PortBin = integer_to_binary(Port),
+  Url = <<"wss://localhost:", PortBin/binary, "/websocket/", Room/binary>>,
+
   [{user1, User1},
    {user2, User2},
    {room, Room},
@@ -139,6 +144,17 @@ callbacks(Config) ->
   ok.
 
 %% internal
+start_cowboy(Port) ->
+  application:ensure_all_started(cowboy),
+  {ok, Cert} = application:get_env(webrtc_server, certfile),
+  {ok, Key} = application:get_env(webrtc_server, keyfile),
+  Dispatch = cowboy_router:compile([{'_', [{"/websocket/:room", webrtc_ws_handler, []}]}]),
+  {ok, _} = cowboy:start_tls(my_http_listener,
+                             [{port, Port},
+                              {certfile, Cert},
+                              {keyfile, Key}],
+                             #{env => #{dispatch => Dispatch}}).
+
 random_name(Prefix) ->
   Random = rand:uniform(10000),
   Sufix = integer_to_binary(Random),
