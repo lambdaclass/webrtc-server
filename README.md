@@ -1,13 +1,61 @@
 # webrtc-server [![Build Status](https://travis-ci.org/lambdaclass/webrtc-server.svg?branch=master)](https://travis-ci.org/lambdaclass/webrtc-server)
 
-An OTP application to make video calls using [WebRTC](https://webrtc.org/). It includes a STUN/TURN server using [processone/stun](https://github.com/processone/stun).
+An Erlang/OTP application that provides all the server side components to make video calls using [WebRTC](https://webrtc.org/).
+## Usage
+
+Add `webrtc_server` as a dependency, for example using rebar3:
+
+``` erlang
+{deps, [
+        {cowboy, "2.0.0"},
+        {webrtc_server, {git, "https://github.com/lambdaclass/webrtc-server", {ref, "56bce3"}}}
+       ]}
+```
+
+`webrtc_server` provides a single Cowboy WebSocket handler
+`webrtc_ws_handler` that acts as the Signaling Server to pass data
+between peers. Add the handler to your cowboy 2.0 application:
+
+``` erlang
+Dispatch = cowboy_router:compile([{'_', [{"/websocket/:room", webrtc_ws_handler, []}]}]),
+{ok, _} = cowboy:start_tls(my_http_listener,
+                           [{port, config(port)},
+                            {certfile, config(certfile)},
+                            {keyfile, config(certkey)}],
+                           #{env => #{dispatch => Dispatch}}).
+```
+
+Note the handler expects a `:room` parameter to group connecting
+clients into different rooms.
+
+In addition to the Signaling server, `webrtc_server` starts a
+STUN/TURN server on port 3478
+using [processone/stun](https://github.com/processone/stun), which can
+be used as ICE servers by the WebRTC peers. A browser client can use it like:
+
+``` javascript
+var pc = new RTCPeerConnection({
+  iceServers: [{
+    urls: "stun:example.com:3478"
+  },{
+    urls: "turn:example.com:3478",
+    username: "username",
+    credential: "password"
+  }]
+});
+```
+
+The [example directory](https://github.com/lambdaclass/webrtc-server/tree/master/example)
+contains a full Cowboy application using `webrtc_server` and a simple
+browser client that establishes a WebRTC connection using the
+Signaling and ICE servers.
 
 ## Configuration
 ### authentication
 
 An authentication function needs to be provided to the app
-environment as which will be used to authenticate both the websocket
-connections to the signaling server and the turn connections.
+environment to authenticate both the websocket
+connections to the signaling server and the TURN connections.
 
 Example:
 
@@ -15,23 +63,23 @@ Example:
 {auth_fun, {module, function}}
 ```
 
-The function will ba called like `module:function(Username)`, and
+This function will ba called like `module:function(Username)`, and
 should return the expected password for the given Username. The
-password will compared to the one sent by the clients. Auth will be
+password will be compared to the one sent by the client. Authentication will be
 considered failed if the result value is not a binary or the function
 throws an error.
 
-The implementation of this function will depend on how this
+The implementation of the function will depend on how the webrtc
 application is expected to be deployed. It could just return a fixed
 password from configuration, encode the username using a secret shared
-with the application server, lookup the password on a common
+between the webtrtc and application servers, lookup the password on a common
 datastore, etc.
 
 ### callbacks
 webrtc_server allows to define callback functions that will be
 triggered when users enter or leave a room. This can be useful to
-track conversation state (such as when a call starts or end), without
-needing extra work in the clients.
+track conversation state (such as when a call starts or ends), without
+needing extra work from the clients.
 
 ``` erlang
 {create_callback, {module, function}}
@@ -46,57 +94,19 @@ The three callbacks receive the same arguments:
 
 ### server configuration
 
-* port: port used to serve the signaling server and the example client.
-* certfile: path to the certificate file for the signaling server and
-  example client.
-* keyfile: path to the key file for the signaling server and
-  example client.
-* hostname: name of the host where the app will be deployed. Will be
-  used as the `auth_realm` for stun and to lookup the `turn_ip`
-* turn_ip: IP of the server where the app will be deployed. If not
-  provided, will default to the first result of
-  `inet_res:lookup(Hostname, in, a)`
-* idle_timeout: cowboy configuration for the websocket
+* certfile: path to the certificate file for the STUN server.
+* keyfile: path to the key file for for the STUN server.
+* hostname: webrtc server hostname. Will be used as the `auth_realm`
+  for TURN and to lookup the `turn_ip` if it's not provided.
+* turn_ip: IP of the webrtc server. If not provided, will default to
+  the first result of `inet_res:lookup(Hostname, in, a)`.
+* idle_timeout: [Cowboy option](https://ninenines.eu/docs/en/cowboy/2.0/manual/cowboy_websocket/#_opts) for the websocket
   connections. By default will disconnect idle sockets after a
-  minute (thus requiring the clients to periodically send a ping). Use
-  `infinity` to prevent disconnections.
+  minute (thus requiring the clients to periodically send a keepalive message). Use
+  `infinity` to disable idle timeouts.
 
-## Websockets API for signaling
-
-TODO
-
-## Run in development
-
-    make dev
-
-The example app will run on `https://localhost:8443/:room`
-
-## Run in production
-
-To run the example app stand alone in a production server, update the
-relevant configuration in `conf/sys.config` (port, certs, host, etc.)
-and run:
-
-    make release
-
-Unpack the generated tar and `bin/webrtc_server start`.
-
-Alternatively, the webrtc_server application can be included as a
-dependency in another project.
-
-### Firewall setup for STUN/TURN
-
-```
-iptables -A INPUT -p tcp --dport 3478 -j ACCEPT
-iptables -A INPUT -p udp --dport 3478 -j ACCEPT
-iptables -A INPUT -p tcp --dport 5349 -j ACCEPT
-iptables -A INPUT -p udp --dport 5349 -j ACCEPT
-iptables -A INPUT -p udp --dport 49152:65535 -j ACCEPT
-```
-
-## openssl error while building
-
-This error while building:
+## Troubleshooting
+### openssl error during compilation
 
 ```
 _build/default/lib/fast_tls/c_src/fast_tls.c:21:10: fatal error: 'openssl/err.h' file not found
@@ -114,4 +124,14 @@ On macOS it's solved by exporting some openssl flags:
 export LDFLAGS="-L/usr/local/opt/openssl/lib"
 export CFLAGS="-I/usr/local/opt/openssl/include/"
 export CPPFLAGS="-I/usr/local/opt/openssl/include/"
+```
+
+### Firewall setup for STUN/TURN
+
+```
+iptables -A INPUT -p tcp --dport 3478 -j ACCEPT
+iptables -A INPUT -p udp --dport 3478 -j ACCEPT
+iptables -A INPUT -p tcp --dport 5349 -j ACCEPT
+iptables -A INPUT -p udp --dport 5349 -j ACCEPT
+iptables -A INPUT -p udp --dport 49152:65535 -j ACCEPT
 ```
