@@ -88,9 +88,10 @@ needing extra work from the clients.
 ```
 
 The three callbacks receive the same arguments:
-    * Room: name of the room used to connect.
-    * Username: username provided by the client executing the action.
-    * OtherUsers: list of the rest of the usernames currently in the room.
+
+* Room: name of the room used to connect.
+* Username: username provided by the client executing the action.
+* OtherUsers: list of the rest of the usernames currently in the room.
 
 ### server configuration
 
