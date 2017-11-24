@@ -1,4 +1,5 @@
--module(example).
+-module(callbacks).
+
 -export([authenticate/1,
          create/3,
          join/3,
@@ -6,7 +7,7 @@
 
 authenticate(_Username) ->
   %% in a real scenario this may lookup the password in the db, request an external service, etc.
-  {ok, Password} = application:get_env(webrtc_server, example_password),
+  {ok, Password} = application:get_env(example, example_password),
   Password.
 
 create(Room, Username, _OtherUsers) ->
