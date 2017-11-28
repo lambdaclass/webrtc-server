@@ -12,7 +12,7 @@
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.4.0">>},1},
  {<<"stun">>,
   {git,"https://github.com/processone/stun.git",
-       {ref,"564d571671eda0775caa662554caaafc2c22f813"}},
+       {ref,"0ccce84e1d4b74bfa533fcb3f6e5f887df54bff3"}},
   0},
  {<<"syn">>,{pkg,<<"syn">>,<<"1.6.1">>},0}]}.
 [
