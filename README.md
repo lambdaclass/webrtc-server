@@ -103,8 +103,32 @@ The three callbacks receive the same arguments:
   the first result of `inet_res:lookup(Hostname, in, a)`.
 * idle_timeout: [Cowboy option](https://ninenines.eu/docs/en/cowboy/2.0/manual/cowboy_websocket/#_opts) for the websocket
   connections. By default will disconnect idle sockets after a
-  minute (thus requiring the clients to periodically send a keepalive message). Use
+  minute (thus requiring the clients to periodically send a ping  message). Use
   `infinity` to disable idle timeouts.
+
+## Signaling API reference
+### Authentication
+After connection, an authentication JSON message should be sent:
+
+``` json
+{
+    "event": "authenticate",
+    "data": {
+        "username": "john",
+        "password": "s3cr3t!"
+    }
+}
+```
+
+### Room messages
+
+After authentication, any (non ping) message sent will be forwarded to
+the rest of the clients connected to the room.
+
+### Ping
+To send a keepalive message to prevent idle connections to be droped
+by the server, send a plain text frame of value `ping`. The server
+will respond with `pong`.
 
 ## Troubleshooting
 ### openssl error during compilation

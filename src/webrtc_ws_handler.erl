@@ -21,6 +21,11 @@ websocket_init(State) ->
   timer:send_after(Time, check_auth),
   {ok, State}.
 
+websocket_handle({text, <<"ping">>}, State) ->
+  %% not all ws clients can send a ping frame (namely, browsers can't)
+  %% so we handle a ping text frame.
+  {reply, {text, <<"pong">>}, State};
+
 websocket_handle({text, Text}, State = #{authenticated := false}) ->
    case authenticate(Text) of
      {success, Username} ->
@@ -34,6 +39,7 @@ websocket_handle({text, Text}, State = #{authenticated := false}) ->
        lager:debug("bad authentication: ~p ~p", [Reason, Text]),
        {reply, reply_text(unauthorized), State}
    end;
+
 websocket_handle({text, Text}, State = #{authenticated := true}) ->
   lager:debug("Received text frame ~p", [Text]),
 
@@ -54,12 +60,15 @@ websocket_handle(Frame, State) ->
 websocket_info(check_auth, State = #{authenticated := false}) ->
   lager:debug("disconnecting unauthenticated socket"),
   {stop, State};
+
 websocket_info(check_auth, State) ->
   %% already authenticated, do nothing
   {ok, State};
+
 websocket_info({text, Text}, State = #{authenticated := true}) ->
   lager:debug("Sending to client ~p", [Text]),
   {reply, {text, Text}, State};
+
 websocket_info(Info, State) ->
   lager:warning("Received unexpected info ~p~p", [Info, State]),
   {ok, State}.

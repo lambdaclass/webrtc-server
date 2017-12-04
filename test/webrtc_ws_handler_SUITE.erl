@@ -21,7 +21,8 @@ all() ->
   [
    join_and_send_message,
    auth_failure,
-   callbacks
+   callbacks,
+   ping
   ].
 
 init_per_suite(Config) ->
@@ -126,8 +127,8 @@ callbacks(Config) ->
   %% user 2 joins
   {ok, Conn2} = ws_client:start_link(Url),
   AuthData2 = #{<<"event">> => <<"authenticate">>,
-               <<"data">> => #{<<"username">> => User2,
-                               <<"password">> => <<"password">>}},
+                <<"data">> => #{<<"username">> => User2,
+                                <<"password">> => <<"password">>}},
   {ok, #{<<"event">> := <<"joined">>}} = ws_client:send(Conn2, AuthData2),
   {ok, #{<<"event">> := <<"joined">>}} = ws_client:recv(Conn1),
 
@@ -141,6 +142,22 @@ callbacks(Config) ->
    {User1, leave, Room, [User2]}] = ets:lookup(callback_log, User1),
   [{User2, join, Room, [User1]},
    {User2, leave, Room, []}] = ets:lookup(callback_log, User2),
+  ok.
+
+ping(Config) ->
+  Url = proplists:get_value(url, Config),
+  User1 = proplists:get_value(user1, Config),
+  {ok, Conn1} = ws_client:start_link(Url),
+
+  %% ping before auth
+  {ok, <<"pong">>} = ws_client:ping(Conn1),
+
+  %% ping after auth
+  AuthData = #{<<"event">> => <<"authenticate">>,
+               <<"data">> => #{<<"username">> => User1,
+                               <<"password">> => <<"password">>}},
+  {ok, #{<<"event">> := <<"created">>}} = ws_client:send(Conn1, AuthData),
+  {ok, <<"pong">>} = ws_client:ping(Conn1),
   ok.
 
 %% internal

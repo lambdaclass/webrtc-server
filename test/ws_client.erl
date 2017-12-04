@@ -6,6 +6,7 @@
          send/2,
          send_async/2,
          recv/1,
+         ping/1,
          start_link/1,
          stop/1
         ]).
@@ -49,11 +50,21 @@ recv(#{ref := Ref}) ->
         {error, timeoutp}
     end.
 
+ping(#{pid := ConnPid} = Conn) ->
+  websocket_client:cast(ConnPid, {text, <<"ping">>}),
+  recv(Conn).
+
 %%% websocket client callbacks
 
 init(State, _ConnState) ->
   {ok, State}.
 
+websocket_handle({text, <<"pong">> = Msg}, _ConnState, State) ->
+  Caller = proplists:get_value(caller, State),
+  Ref = proplists:get_value(ref, State),
+
+  Caller ! {ws_client, reply, Ref, Msg},
+  {ok, State};
 websocket_handle({text, MsgJson}, _ConnState, State) ->
   Caller = proplists:get_value(caller, State),
   Ref = proplists:get_value(ref, State),
