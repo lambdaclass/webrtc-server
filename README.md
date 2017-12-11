@@ -82,16 +82,15 @@ track conversation state (such as when a call starts or ends), without
 needing extra work from the clients.
 
 ``` erlang
-{create_callback, {module, function}}
 {join_callback, {module, function}}
 {leave_callback, {module, function}}
 ```
 
-The three callbacks receive the same arguments:
+Both callbacks receive the same arguments:
 
 * Room: name of the room used to connect.
 * Username: username provided by the client executing the action.
-* OtherUsers: list of the rest of the usernames currently in the room.
+* OtherUsers = [{Username, PeerId}]: list of the rest of the usernames currently in the room.
 
 ### server configuration
 

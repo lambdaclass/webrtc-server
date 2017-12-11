@@ -21,25 +21,29 @@ websocket_init(State) ->
   timer:send_after(Time, check_auth),
   {ok, State}.
 
+%% not all ws clients can send a ping frame (namely, browsers can't)
+%% so we handle a ping text frame.
 websocket_handle({text, <<"ping">>}, State) ->
-  %% not all ws clients can send a ping frame (namely, browsers can't)
-  %% so we handle a ping text frame.
   {reply, {text, <<"pong">>}, State};
 
+%% Before authentication, just expect the socket to send user/pass
 websocket_handle({text, Text}, State = #{authenticated := false}) ->
    case authenticate(Text) of
      {success, Username} ->
        lager:debug("socket authenticated"),
-       State2 = State#{authenticated => true, username => Username},
+       PeerId = peer_id(),
+       State2 = State#{authenticated => true,
+                       username => Username,
+                       peer_id => PeerId},
        Room = maps:get(room, State2),
-       CreatedOrJoined = join_room(Room, Username),
-       syn:publish(Room, reply_text(CreatedOrJoined)),
+       join_room(Room, Username, PeerId),
        {ok, State2};
      Reason ->
        lager:debug("bad authentication: ~p ~p", [Reason, Text]),
        {reply, reply_text(unauthorized), State}
    end;
 
+%% After authentication, any message should be broadcasted to the group
 websocket_handle({text, Text}, State = #{authenticated := true}) ->
   lager:debug("Received text frame ~p", [Text]),
 
@@ -53,10 +57,12 @@ websocket_handle({text, Text}, State = #{authenticated := true}) ->
 
   lists:foreach(Send, Members),
   {ok, State};
+
 websocket_handle(Frame, State) ->
   lager:warning("Received non text frame ~p~p", [Frame, State]),
   {ok, State}.
 
+%% If user/password not sent before ws_auth_delay, disconnect
 websocket_info(check_auth, State = #{authenticated := false}) ->
   lager:debug("disconnecting unauthenticated socket"),
   {stop, State};
@@ -65,6 +71,7 @@ websocket_info(check_auth, State) ->
   %% already authenticated, do nothing
   {ok, State};
 
+%% incoming test frame, send to the client socket
 websocket_info({text, Text}, State = #{authenticated := true}) ->
   lager:debug("Sending to client ~p", [Text]),
   {reply, {text, Text}, State};
@@ -73,10 +80,10 @@ websocket_info(Info, State) ->
   lager:warning("Received unexpected info ~p~p", [Info, State]),
   {ok, State}.
 
-terminate(_Reason, _Req, #{room := Room, username := Username}) ->
-  OtherUsers = [Name || {Pid, Name} <- syn:get_members(Room, with_meta), Pid /= self()],
+terminate(_Reason, _Req, #{room := Room, username := Username, peer_id := PeerId}) ->
+  OtherUsers = [Name || {Pid, {Name, _PeerId}} <- syn:get_members(Room, with_meta), Pid /= self()],
   run_callback(leave_callback, Room, Username, OtherUsers),
-  syn:publish(Room, reply_text(left, #{username => Username})),
+  syn:publish(Room, reply_text(left, #{username => Username, peer_id => PeerId})),
   ok;
 terminate(_Reason, _Req, _State) ->
   ok.
@@ -102,17 +109,13 @@ authenticate(Data) ->
       invalid_json
   end.
 
-join_room(Room, Username) ->
-  syn:join(Room, self(), Username),
-  OtherUsers = [Name || {Pid, Name} <- syn:get_members(Room, with_meta), Pid /= self()],
-  case length(OtherUsers) of
-    0 ->
-      run_callback(create_callback, Room, Username, OtherUsers),
-      created;
-    _ ->
-      run_callback(join_callback, Room, Username, OtherUsers),
-      joined
-  end.
+join_room(Room, Username, PeerId) ->
+  syn:join(Room, self(), {Username, PeerId}),
+  Members = syn:get_members(Room, with_meta),
+  OtherNames = [Name || {Pid, {Name, _Peer}} <- Members, Pid /= self()],
+  OtherPeers = [Peer || {Pid, {_Name, Peer}} <- Members, Pid /= self()],
+  run_callback(join_callback, Room, Username, OtherNames),
+  syn:publish(Room, reply_text(joined, #{peer_id => PeerId, peers => OtherPeers})).
 
 safe_auth(Username) ->
   {ok, {AuthMod, AuthFun}} = application:get_env(webrtc_server, auth_fun),
@@ -136,3 +139,6 @@ run_callback(Type, Room, Username, CurrentUsers) ->
     undefined ->
       ok
   end.
+
+peer_id() ->
+  base64:encode(crypto:strong_rand_bytes(10)).

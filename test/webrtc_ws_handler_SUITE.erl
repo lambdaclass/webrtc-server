@@ -8,14 +8,11 @@ auth_fun(_Username) ->
   %% password hardcoded for all users
   <<"password">>.
 
-create_callback(Room, Username, OtherUsers) ->
-  ets:insert(callback_log, {Username, create, Room,  OtherUsers}).
-
 join_callback(Room, Username, OtherUsers) ->
-  ets:insert(callback_log, {Username, join, Room,  OtherUsers}).
+  ets:insert(callback_log, {Username, join, Room, OtherUsers}).
 
 leave_callback(Room, Username, OtherUsers) ->
-  ets:insert(callback_log, {Username, leave, Room,  OtherUsers}).
+  ets:insert(callback_log, {Username, leave, Room, OtherUsers}).
 
 all() ->
   [
@@ -61,15 +58,20 @@ join_and_send_message(Config) ->
   AuthData = #{<<"event">> => <<"authenticate">>,
                <<"data">> => #{<<"username">> => User1,
                                <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"created">>}} = ws_client:send(Conn1, AuthData),
+  {ok, #{<<"event">> := <<"joined">>,
+         <<"data">> := PeerData1}} = ws_client:send(Conn1, AuthData),
+  #{<<"peer_id">> := PeerId1, <<"peers">> := []} = PeerData1,
 
   %% user 2 joins and auths -> joined
   {ok, Conn2} = ws_client:start_link(Url),
   AuthData2 = #{<<"event">> => <<"authenticate">>,
-               <<"data">> => #{<<"username">> => User2,
-                               <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"joined">>}} = ws_client:send(Conn2, AuthData2),
-  {ok, #{<<"event">> := <<"joined">>}} = ws_client:recv(Conn1),
+                <<"data">> => #{<<"username">> => User2,
+                                <<"password">> => <<"password">>}},
+  {ok, #{<<"event">> := <<"joined">>,
+         <<"data">> := PeerData2}} = ws_client:send(Conn2, AuthData2),
+  {ok, #{<<"event">> := <<"joined">>,
+         <<"data">> := PeerData2}} = ws_client:recv(Conn1),
+  #{<<"peer_id">> := _PeerId2, <<"peers">> := [PeerId1]} = PeerData2,
 
   %% user 1 sends message, user 2 receives
   ws_client:send(Conn1, #{<<"event">> => <<"hello!">>}),
@@ -102,11 +104,10 @@ auth_failure(Config) ->
   AuthData2 = #{<<"event">> => <<"authenticate">>,
                 <<"data">> => #{<<"username">> => User2,
                                 <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"created">>}} = ws_client:send(Conn2, AuthData2),
+  {ok, #{<<"event">> := <<"joined">>}} = ws_client:send(Conn2, AuthData2),
   ok.
 
 callbacks(Config) ->
-  application:set_env(webrtc_server, create_callback, {webrtc_ws_handler_SUITE, create_callback}),
   application:set_env(webrtc_server, join_callback, {webrtc_ws_handler_SUITE, join_callback}),
   application:set_env(webrtc_server, leave_callback, {webrtc_ws_handler_SUITE, leave_callback}),
 
@@ -122,7 +123,7 @@ callbacks(Config) ->
   AuthData = #{<<"event">> => <<"authenticate">>,
                <<"data">> => #{<<"username">> => User1,
                                <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"created">>}} = ws_client:send(Conn1, AuthData),
+  {ok, #{<<"event">> := <<"joined">>}} = ws_client:send(Conn1, AuthData),
 
   %% user 2 joins
   {ok, Conn2} = ws_client:start_link(Url),
@@ -138,7 +139,7 @@ callbacks(Config) ->
   ws_client:stop(Conn2),
   timer:sleep(100),
 
-  [{User1, create, Room, []},
+  [{User1, join, Room, []},
    {User1, leave, Room, [User2]}] = ets:lookup(callback_log, User1),
   [{User2, join, Room, [User1]},
    {User2, leave, Room, []}] = ets:lookup(callback_log, User2),
@@ -156,7 +157,7 @@ ping(Config) ->
   AuthData = #{<<"event">> => <<"authenticate">>,
                <<"data">> => #{<<"username">> => User1,
                                <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"created">>}} = ws_client:send(Conn1, AuthData),
+  {ok, #{<<"event">> := <<"joined">>}} = ws_client:send(Conn1, AuthData),
   {ok, <<"pong">>} = ws_client:ping(Conn1),
   ok.
 
