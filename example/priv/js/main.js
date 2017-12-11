@@ -4,7 +4,6 @@ var isInitiator = false;
 var isStarted = false;
 var localStream;
 var pc;
-var remoteStream;
 
 var username = 'username';
 var password = 'password';
@@ -118,7 +117,6 @@ function left () {
     isStarted = false;
     pc.close();
     pc = null;
-    remoteStream = undefined;
     remoteVideo.srcObject = undefined;
 
     // assumption: if other client leaves and this one stays, it becomes the initiator
@@ -209,7 +207,6 @@ function handleIceCandidate(event) {
 function handleRemoteStreamAdded(event) {
   console.log('Remote stream added.');
   remoteVideo.srcObject = event.streams[0];
-  remoteStream = event.streams[0];
 }
 
 function createOffer() {
