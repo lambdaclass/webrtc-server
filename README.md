@@ -119,6 +119,19 @@ After connection, an authentication JSON message should be sent:
 }
 ```
 
+The server will reply with this payload:
+
+``` json
+{
+    "event": "joined",
+    "data": {
+        "username": "john",
+        "peer_id": "bxCBrwyL3Ar7Nw==",
+        "peers": ["7nN1q/qarRnejQ=="]
+    }
+}
+```
+
 ### Room messages
 
 After authentication, any (non ping) message sent will be forwarded to

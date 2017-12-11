@@ -71,20 +71,16 @@ function sendMessage(event, message) {
 
 //// SOCKET EVENT LISTENERS
 
-// when theres one client connected, server consider the rooms as 'created'
-// thus, if a client gets created, it's the initiator
-function created () {
-  console.log('Created room, this client is initiator');
-  isInitiator = true;
-}
-
-// we're asssuming 1on1 conversations. when a client gets 'joined', then both
+// we're asssuming 1on1 conversations. when a second client joins then both
 // clients are connected => channel ready
-function joined () {
-  console.log('joined: ' + room);
-
-  // both users connected, so now we can move to next step, intiate the RTC communication
-  startRTC();
+function joined (data) {
+  console.log('peer joined', data.peer_id);
+  if (data.peers.length === 0) {
+    isInitiator = true;
+  } else {
+    // both users connected, so now we can move to next step, intiate the RTC communication
+    startRTC();
+  }
 }
 
 function candidate(data) {
@@ -143,7 +139,6 @@ function connectSocket() {
   };
 
   const listeners = {
-    created,
     joined,
     left,
     candidate,
