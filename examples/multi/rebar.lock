@@ -17,7 +17,7 @@
  {<<"syn">>,{pkg,<<"syn">>,<<"1.6.1">>},0},
  {<<"webrtc_server">>,
   {git,"https://github.com/lambdaclass/webrtc-server",
-       {ref,"8aa65681a03683a737ce3e4376c0a507d2b4f6ad"}},
+       {ref,"2440c6b1303fdfa758a6f327fbe3ea108f5f44f0"}},
   0}]}.
 [
 {pkg_hash,[

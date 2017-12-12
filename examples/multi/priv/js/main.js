@@ -75,20 +75,18 @@ function sendMessage(event, message, toPeer) {
 function authenticated (data) {
   peerId = data.peer_id;
   console.log('authenticated:', peerId);
-
-  // start RTC as initiator with previously existent peers
-  data.peers.forEach(function (otherPeer) {
-    startRTC(otherPeer, true);
-  });
 }
 
 function joined (data) {
   console.log('peer joined', data.peer_id);
-  // start RTC as receiver with newly joined peer
-  startRTC(data.peer_id, false);
+  // start RTC as initiator with newly joined peer
+  startRTC(data.peer_id, true);
 }
 
 function offer (data, fromPeer) {
+  // received an offer, need to initiate rtc as receiver before answering
+  startRTC(fromPeer, false);
+
   const connection = peers[fromPeer].connection;
   connection.setRemoteDescription(new RTCSessionDescription(data));
   console.log('Sending answer to peer.');
@@ -114,7 +112,6 @@ function answer (data, fromPeer) {
 }
 
 function left (data) {
-  // FIXME probably not getting the from here
   console.log('Session terminated.');
   const otherPeer = data.peer_id;
   peers[otherPeer].connection.close();

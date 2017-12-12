@@ -1,8 +1,8 @@
 'use strict';
 
-var isInitiator = false;
 var localStream;
 var pc;
+var remotePeerId;
 
 var username = 'username';
 var password = 'password';
@@ -62,29 +62,27 @@ var socket;
 function sendMessage(event, message) {
   const payload = {
     event,
-    data: message
+    data: message,
+    to: remotePeerId
   };
-  console.log('Client sending message: ', event, message);
+  console.log('Client sending message: ', payload);
   socket.send(JSON.stringify(payload));
 }
 
 //// SOCKET EVENT LISTENERS
 
 function authenticated (data) {
-  if (data.peers.length === 0) {
-    // mark as initiator, will start RTC when other user joins
-    isInitiator = true;
-  } else {
-    // second user authenticated (not the initiator), start RTC as receiver
-    startRTC();
-  }
+  console.log('authenticated:', data.peer_id);
 }
 
 // we're asssuming 1on1 conversations. when a second client joins then both
 // clients are connected => channel ready
 function joined(data) {
   console.log('peer joined', data.peer_id);
-  startRTC();
+  remotePeerId = data.peer_id;
+
+  // this is the initiator
+  startRTC(true);
 }
 
 function candidate(data) {
@@ -95,7 +93,11 @@ function candidate(data) {
   pc.addIceCandidate(candidate);
 }
 
-function offer (data) {
+function offer (data, fromPeer) {
+  // received offer from the other peer, start as receiver
+  remotePeerId = fromPeer;
+  startRTC(false);
+
   pc.setRemoteDescription(new RTCSessionDescription(data));
   console.log('Sending answer to peer.');
   pc.createAnswer().then(
@@ -116,12 +118,9 @@ function left () {
   if (pc) {
     pc.close();
     pc = null;
+    remotePeerId = undefined;
   }
   remoteVideo.srcObject = undefined;
-
-  // assumption: if other client leaves and this one stays, it becomes the initiator
-  // if another users attempts to join again
-  isInitiator = true;
 }
 
 /*
@@ -142,6 +141,7 @@ function connectSocket() {
   };
 
   const listeners = {
+    authenticated,
     joined,
     left,
     candidate,
@@ -154,7 +154,7 @@ function connectSocket() {
     console.log('Client received message:', data);
     const listener = listeners[data.event];
     if (listener) {
-      listener(data.data);
+      listener(data.data, data.from);
     } else {
       console.log('no listener for message', data.event);
     }
@@ -164,7 +164,7 @@ function connectSocket() {
 
 ////////////////////////////////////////////////////
 
-function startRTC() {
+function startRTC(isInitiator) {
   console.log('>>>>>> creating peer connection');
 
   try {
