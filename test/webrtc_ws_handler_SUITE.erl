@@ -17,6 +17,7 @@ leave_callback(Room, Username, OtherUsers) ->
 all() ->
   [
    join_and_send_message,
+   multiple_users,
    auth_failure,
    callbacks,
    ping
@@ -33,16 +34,12 @@ end_per_suite(_Config) ->
   ok.
 
 init_per_testcase(_TestCase, Config) ->
-  User1 = random_name(<<"User1">>),
-  User2 = random_name(<<"User2">>),
   Room = random_name(<<"Room">>),
   Port = proplists:get_value(port, Config),
   PortBin = integer_to_binary(Port),
   Url = <<"wss://localhost:", PortBin/binary, "/websocket/", Room/binary>>,
 
-  [{user1, User1},
-   {user2, User2},
-   {room, Room},
+  [{room, Room},
    {url, Url} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
@@ -50,15 +47,15 @@ end_per_testcase(_TestCase, _Config) ->
 
 join_and_send_message(Config) ->
   Url = proplists:get_value(url, Config),
-  User1 = proplists:get_value(user1, Config),
-  User2 = proplists:get_value(user2, Config),
+  User1 = random_name(<<"User1">>),
+  User2 = random_name(<<"User2">>),
 
   %% user 1 joins and auths -> created
   {ok, Conn1} = ws_client:start_link(Url),
   AuthData = #{<<"event">> => <<"authenticate">>,
                <<"data">> => #{<<"username">> => User1,
                                <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"joined">>,
+  {ok, #{<<"event">> := <<"authenticated">>,
          <<"data">> := PeerData1}} = ws_client:send(Conn1, AuthData),
   #{<<"peer_id">> := PeerId1, <<"peers">> := []} = PeerData1,
 
@@ -67,11 +64,11 @@ join_and_send_message(Config) ->
   AuthData2 = #{<<"event">> => <<"authenticate">>,
                 <<"data">> => #{<<"username">> => User2,
                                 <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"joined">>,
+  {ok, #{<<"event">> := <<"authenticated">>,
          <<"data">> := PeerData2}} = ws_client:send(Conn2, AuthData2),
   {ok, #{<<"event">> := <<"joined">>,
-         <<"data">> := PeerData2}} = ws_client:recv(Conn1),
-  #{<<"peer_id">> := _PeerId2, <<"peers">> := [PeerId1]} = PeerData2,
+         <<"data">> := #{<<"peer_id">> := PeerId2}}} = ws_client:recv(Conn1),
+  #{<<"peer_id">> := PeerId2, <<"peers">> := [PeerId1]} = PeerData2,
 
   %% user 1 sends message, user 2 receives
   ws_client:send(Conn1, #{<<"event">> => <<"hello!">>}),
@@ -87,10 +84,59 @@ join_and_send_message(Config) ->
 
   ok.
 
+multiple_users(Config) ->
+  Url = proplists:get_value(url, Config),
+  User1 = random_name(<<"User1">>),
+  User2 = random_name(<<"User2">>),
+  User3 = random_name(<<"User3">>),
+
+  %% join three users to the call
+  {ok, Conn1} = ws_client:start_link(Url),
+  AuthData = #{<<"event">> => <<"authenticate">>,
+               <<"data">> => #{<<"username">> => User1,
+                               <<"password">> => <<"password">>}},
+  {ok, #{<<"event">> := <<"authenticated">>,
+         <<"data">> := PeerData1}} = ws_client:send(Conn1, AuthData),
+  #{<<"peer_id">> := Peer1} = PeerData1,
+
+  %% user 2 joins
+  {ok, Conn2} = ws_client:start_link(Url),
+  AuthData2 = #{<<"event">> => <<"authenticate">>,
+                <<"data">> => #{<<"username">> => User2,
+                                <<"password">> => <<"password">>}},
+  {ok, #{<<"event">> := <<"authenticated">>,
+         <<"data">> := PeerData2}} = ws_client:send(Conn2, AuthData2),
+  {ok, #{<<"event">> := <<"joined">>}} = ws_client:recv(Conn1),
+  #{<<"peer_id">> := Peer2} = PeerData2,
+
+  %% user 3 joins
+  {ok, Conn3} = ws_client:start_link(Url),
+  AuthData3 = #{<<"event">> => <<"authenticate">>,
+                <<"data">> => #{<<"username">> => User3,
+                                <<"password">> => <<"password">>}},
+  {ok, #{<<"event">> := <<"authenticated">>}} = ws_client:send(Conn3, AuthData3),
+  {ok, #{<<"event">> := <<"joined">>}} = ws_client:recv(Conn1),
+  {ok, #{<<"event">> := <<"joined">>}} = ws_client:recv(Conn2),
+
+  %% all receive broadcast
+  ws_client:send(Conn1, #{<<"event">> => <<"hello!">>}),
+  {ok, #{<<"event">> := <<"hello!">>,
+         <<"from">> := Peer1}} = ws_client:recv(Conn2),
+  {ok, #{<<"event">> := <<"hello!">>,
+         <<"from">> := Peer1}} = ws_client:recv(Conn3),
+
+  %% only peer receives when to: specified
+  ws_client:send(Conn1, #{<<"event">> => <<"hello!">>, <<"to">> => Peer2}),
+  {ok, #{<<"event">> := <<"hello!">>,
+         <<"from">> := Peer1}} = ws_client:recv(Conn2),
+  {error, timeout} = ws_client:recv(Conn3, 200),
+
+  ok.
+
 auth_failure(Config) ->
   Url = proplists:get_value(url, Config),
-  User1 = proplists:get_value(user1, Config),
-  User2 = proplists:get_value(user2, Config),
+  User1 = random_name(<<"User1">>),
+  User2 = random_name(<<"User2">>),
 
   %% user 1 joins and auths -> created
   {ok, Conn1} = ws_client:start_link(Url),
@@ -104,7 +150,7 @@ auth_failure(Config) ->
   AuthData2 = #{<<"event">> => <<"authenticate">>,
                 <<"data">> => #{<<"username">> => User2,
                                 <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"joined">>}} = ws_client:send(Conn2, AuthData2),
+  {ok, #{<<"event">> := <<"authenticated">>}} = ws_client:send(Conn2, AuthData2),
   ok.
 
 callbacks(Config) ->
@@ -112,8 +158,8 @@ callbacks(Config) ->
   application:set_env(webrtc_server, leave_callback, {webrtc_ws_handler_SUITE, leave_callback}),
 
   Url = proplists:get_value(url, Config),
-  User1 = proplists:get_value(user1, Config),
-  User2 = proplists:get_value(user2, Config),
+  User1 = random_name(<<"User1">>),
+  User2 = random_name(<<"User2">>),
   Room = proplists:get_value(room, Config),
 
   ets:new(callback_log, [named_table, public, bag]),
@@ -123,14 +169,14 @@ callbacks(Config) ->
   AuthData = #{<<"event">> => <<"authenticate">>,
                <<"data">> => #{<<"username">> => User1,
                                <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"joined">>}} = ws_client:send(Conn1, AuthData),
+  {ok, #{<<"event">> := <<"authenticated">>}} = ws_client:send(Conn1, AuthData),
 
   %% user 2 joins
   {ok, Conn2} = ws_client:start_link(Url),
   AuthData2 = #{<<"event">> => <<"authenticate">>,
                 <<"data">> => #{<<"username">> => User2,
                                 <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"joined">>}} = ws_client:send(Conn2, AuthData2),
+  {ok, #{<<"event">> := <<"authenticated">>}} = ws_client:send(Conn2, AuthData2),
   {ok, #{<<"event">> := <<"joined">>}} = ws_client:recv(Conn1),
 
   %% users leave the room
@@ -147,7 +193,7 @@ callbacks(Config) ->
 
 ping(Config) ->
   Url = proplists:get_value(url, Config),
-  User1 = proplists:get_value(user1, Config),
+  User1 = random_name(<<"User1">>),
   {ok, Conn1} = ws_client:start_link(Url),
 
   %% ping before auth
@@ -157,7 +203,7 @@ ping(Config) ->
   AuthData = #{<<"event">> => <<"authenticate">>,
                <<"data">> => #{<<"username">> => User1,
                                <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"joined">>}} = ws_client:send(Conn1, AuthData),
+  {ok, #{<<"event">> := <<"authenticated">>}} = ws_client:send(Conn1, AuthData),
   {ok, <<"pong">>} = ws_client:ping(Conn1),
   ok.
 

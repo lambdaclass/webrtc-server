@@ -27,34 +27,48 @@ websocket_handle({text, <<"ping">>}, State) ->
   {reply, {text, <<"pong">>}, State};
 
 %% Before authentication, just expect the socket to send user/pass
-websocket_handle({text, Text}, State = #{authenticated := false}) ->
+websocket_handle({text, Text}, State = #{authenticated := false, room := Room}) ->
    case authenticate(Text) of
      {success, Username} ->
        lager:debug("socket authenticated"),
+
        PeerId = peer_id(),
+       Peers = join_room(Room, Username, PeerId),
+
        State2 = State#{authenticated => true,
                        username => Username,
                        peer_id => PeerId},
-       Room = maps:get(room, State2),
-       join_room(Room, Username, PeerId),
-       {ok, State2};
+       Response = #{peer_id => PeerId, peers => Peers},
+       {reply, reply_text(authenticated, Response), State2};
      Reason ->
        lager:debug("bad authentication: ~p ~p", [Reason, Text]),
        {reply, reply_text(unauthorized), State}
    end;
 
 %% After authentication, any message should be broadcasted to the group
-websocket_handle({text, Text}, State = #{authenticated := true}) ->
+websocket_handle({text, Text}, State = #{authenticated := true,
+                                         room := Room,
+                                         peer_id := ThisPeer}) ->
   lager:debug("Received text frame ~p", [Text]),
 
-  %% send to all other pids in group
-  Room = maps:get(room, State),
-  Members = syn:get_members(Room),
-  Self = self(),
-  Send = fun(Pid) when Pid /= Self -> Pid ! {text, Text};
+  Message = json_decode(Text),
+  Members = case Message of
+              #{to := OtherPeer} ->
+                %% send only to the user specified in the payload
+                %% crash if room doesn't match
+                {Pid, {_Username, _PeerId, Room}} = syn:find_by_key(OtherPeer, with_meta),
+                [Pid];
+              _ ->
+                %% send to all other pids in group
+                syn:get_members(Room)
+            end,
+
+  %% extend message with this peer id before sending
+  Message2 = Message#{from => ThisPeer},
+  Message3 = json_encode(Message2),
+  Send = fun(Pid) when Pid /= self() -> Pid ! {text, Message3};
             (_Pid) -> ok
          end,
-
   lists:foreach(Send, Members),
   {ok, State};
 
@@ -89,14 +103,8 @@ terminate(_Reason, _Req, _State) ->
   ok.
 
 %%% internal
-reply_text(Event) ->
-  {text, jsx:encode(#{event => Event})}.
-
-reply_text(Event, Data) ->
-  {text, jsx:encode(#{event => Event, data => Data})}.
-
 authenticate(Data) ->
-  try jsx:decode(Data, [return_maps, {labels, attempt_atom}]) of
+  try json_decode(Data) of
     #{event := <<"authenticate">>, data := #{username := User, password := Password}} ->
       case safe_auth(User) of
         Password -> {success, User};
@@ -109,14 +117,6 @@ authenticate(Data) ->
       invalid_json
   end.
 
-join_room(Room, Username, PeerId) ->
-  syn:join(Room, self(), {Username, PeerId}),
-  Members = syn:get_members(Room, with_meta),
-  OtherNames = [Name || {Pid, {Name, _Peer}} <- Members, Pid /= self()],
-  OtherPeers = [Peer || {Pid, {_Name, Peer}} <- Members, Pid /= self()],
-  run_callback(join_callback, Room, Username, OtherNames),
-  syn:publish(Room, reply_text(joined, #{peer_id => PeerId, peers => OtherPeers})).
-
 safe_auth(Username) ->
   {ok, {AuthMod, AuthFun}} = application:get_env(webrtc_server, auth_fun),
   try
@@ -125,6 +125,26 @@ safe_auth(Username) ->
     _:_ ->
       auth_error
   end.
+
+join_room(Room, Username, PeerId) ->
+  syn:register(PeerId, self(), {Username, PeerId, Room}),
+  syn:join(Room, self(), {Username, PeerId}),
+
+  Members = syn:get_members(Room, with_meta),
+
+  {OtherPids, OtherNames, OtherPeers} =
+    lists:foldl(fun({Pid, _}, Accum) when Pid == self() ->
+                    Accum;
+                   ({Pid, {Name, Peer}}, {Pids, Names, Peers}) ->
+                    {[Pid | Pids], [Name | Names], [Peer | Peers]}
+                end, {[], [], []}, Members),
+
+  run_callback(join_callback, Room, Username, OtherNames),
+
+  %% broadcast peer joined to the rest of the peers in the room
+  Message = reply_text(joined, #{peer_id => PeerId}),
+  lists:foreach(fun(Pid) -> Pid ! Message end, OtherPids),
+  OtherPeers.
 
 run_callback(Type, Room, Username, CurrentUsers) ->
   case application:get_env(webrtc_server, Type) of
@@ -140,5 +160,17 @@ run_callback(Type, Room, Username, CurrentUsers) ->
       ok
   end.
 
+reply_text(Event) ->
+  {text, json_encode(#{event => Event})}.
+
+reply_text(Event, Data) ->
+  {text, json_encode(#{event => Event, data => Data})}.
+
 peer_id() ->
   base64:encode(crypto:strong_rand_bytes(10)).
+
+json_decode(Data) ->
+  jsx:decode(Data, [return_maps, {labels, attempt_atom}]).
+
+json_encode(Data) ->
+  jsx:encode(Data).

@@ -6,6 +6,7 @@
          send/2,
          send_async/2,
          recv/1,
+         recv/2,
          ping/1,
          start_link/1,
          stop/1
@@ -42,12 +43,15 @@ send_async(#{pid := ConnPid}, Msg) ->
   MsgJson = jsx:encode(Msg),
   websocket_client:cast(ConnPid, {text, MsgJson}).
 
-recv(#{ref := Ref}) ->
+recv(Conn) ->
+  recv(Conn, ?TIMEOUT).
+
+recv(#{ref := Ref}, Timeout) ->
     receive
       {ws_client, reply, Ref, AnswerMsg} ->
         {ok, AnswerMsg}
-    after ?TIMEOUT ->
-        {error, timeoutp}
+    after Timeout ->
+        {error, timeout}
     end.
 
 ping(#{pid := ConnPid} = Conn) ->
