@@ -33,43 +33,33 @@ websocket_handle({text, Text}, State = #{authenticated := false, room := Room}) 
        lager:debug("socket authenticated"),
 
        PeerId = peer_id(),
-       Peers = join_room(Room, Username, PeerId),
+       join_room(Room, Username, PeerId),
 
        State2 = State#{authenticated => true,
                        username => Username,
                        peer_id => PeerId},
-       Response = #{peer_id => PeerId, peers => Peers},
-       {reply, reply_text(authenticated, Response), State2};
+
+       {reply, reply_text(authenticated, #{peer_id => PeerId}), State2};
      Reason ->
        lager:debug("bad authentication: ~p ~p", [Reason, Text]),
        {reply, reply_text(unauthorized), State}
    end;
 
-%% After authentication, any message should be broadcasted to the group
+%% After authentication, any message should be targeted to a specific peer
 websocket_handle({text, Text}, State = #{authenticated := true,
                                          room := Room,
                                          peer_id := ThisPeer}) ->
   lager:debug("Received text frame ~p", [Text]),
 
-  Message = json_decode(Text),
-  Members = case Message of
-              #{to := OtherPeer} ->
-                %% send only to the user specified in the payload
-                %% crash if room doesn't match
-                {Pid, {_Username, _PeerId, Room}} = syn:find_by_key(OtherPeer, with_meta),
-                [Pid];
-              _ ->
-                %% send to all other pids in group
-                syn:get_members(Room)
-            end,
+  %% TODO reply error if `to` is missing
+  Message = #{to := OtherPeer} = json_decode(Text),
+  %% crash if room doesn't match
+  {Pid, {_Username, _PeerId, Room}} = syn:find_by_key(OtherPeer, with_meta),
 
   %% extend message with this peer id before sending
   Message2 = Message#{from => ThisPeer},
-  Message3 = json_encode(Message2),
-  Send = fun(Pid) when Pid /= self() -> Pid ! {text, Message3};
-            (_Pid) -> ok
-         end,
-  lists:foreach(Send, Members),
+  Pid ! {text, json_encode(Message2)},
+
   {ok, State};
 
 websocket_handle(Frame, State) ->
@@ -127,24 +117,16 @@ safe_auth(Username) ->
   end.
 
 join_room(Room, Username, PeerId) ->
+  OtherMembers = syn:get_members(Room, with_meta),
   syn:register(PeerId, self(), {Username, PeerId, Room}),
   syn:join(Room, self(), {Username, PeerId}),
 
-  Members = syn:get_members(Room, with_meta),
-
-  {OtherPids, OtherNames, OtherPeers} =
-    lists:foldl(fun({Pid, _}, Accum) when Pid == self() ->
-                    Accum;
-                   ({Pid, {Name, Peer}}, {Pids, Names, Peers}) ->
-                    {[Pid | Pids], [Name | Names], [Peer | Peers]}
-                end, {[], [], []}, Members),
-
+  OtherNames = [Name || {_, {Name, _Peer}} <- OtherMembers],
   run_callback(join_callback, Room, Username, OtherNames),
 
   %% broadcast peer joined to the rest of the peers in the room
   Message = reply_text(joined, #{peer_id => PeerId}),
-  lists:foreach(fun(Pid) -> Pid ! Message end, OtherPids),
-  OtherPeers.
+  lists:foreach(fun({Pid, _}) -> Pid ! Message end, OtherMembers).
 
 run_callback(Type, Room, Username, CurrentUsers) ->
   case application:get_env(webrtc_server, Type) of

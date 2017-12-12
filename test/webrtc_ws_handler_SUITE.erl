@@ -17,7 +17,6 @@ leave_callback(Room, Username, OtherUsers) ->
 all() ->
   [
    join_and_send_message,
-   multiple_users,
    auth_failure,
    callbacks,
    ping
@@ -49,6 +48,7 @@ join_and_send_message(Config) ->
   Url = proplists:get_value(url, Config),
   User1 = random_name(<<"User1">>),
   User2 = random_name(<<"User2">>),
+  User3 = random_name(<<"User3">>),
 
   %% user 1 joins and auths -> created
   {ok, Conn1} = ws_client:start_link(Url),
@@ -56,8 +56,7 @@ join_and_send_message(Config) ->
                <<"data">> => #{<<"username">> => User1,
                                <<"password">> => <<"password">>}},
   {ok, #{<<"event">> := <<"authenticated">>,
-         <<"data">> := PeerData1}} = ws_client:send(Conn1, AuthData),
-  #{<<"peer_id">> := PeerId1, <<"peers">> := []} = PeerData1,
+         <<"data">> := #{<<"peer_id">> := PeerId1}}} = ws_client:send(Conn1, AuthData),
 
   %% user 2 joins and auths -> joined
   {ok, Conn2} = ws_client:start_link(Url),
@@ -65,49 +64,9 @@ join_and_send_message(Config) ->
                 <<"data">> => #{<<"username">> => User2,
                                 <<"password">> => <<"password">>}},
   {ok, #{<<"event">> := <<"authenticated">>,
-         <<"data">> := PeerData2}} = ws_client:send(Conn2, AuthData2),
+         <<"data">> := #{<<"peer_id">> := PeerId2}}} = ws_client:send(Conn2, AuthData2),
   {ok, #{<<"event">> := <<"joined">>,
          <<"data">> := #{<<"peer_id">> := PeerId2}}} = ws_client:recv(Conn1),
-  #{<<"peer_id">> := PeerId2, <<"peers">> := [PeerId1]} = PeerData2,
-
-  %% user 1 sends message, user 2 receives
-  ws_client:send(Conn1, #{<<"event">> => <<"hello!">>}),
-  {ok, #{<<"event">> := <<"hello!">>}} = ws_client:recv(Conn2),
-
-  %% user 2 sends message, user 1 receives
-  ws_client:send(Conn2, #{<<"event">> => <<"bye!">>}),
-  {ok, #{<<"event">> := <<"bye!">>}} = ws_client:recv(Conn1),
-
-  %% user 2 leaves -> left
-  ws_client:stop(Conn2),
-  {ok, #{<<"event">> := <<"left">>}} = ws_client:recv(Conn1),
-
-  ok.
-
-multiple_users(Config) ->
-  Url = proplists:get_value(url, Config),
-  User1 = random_name(<<"User1">>),
-  User2 = random_name(<<"User2">>),
-  User3 = random_name(<<"User3">>),
-
-  %% join three users to the call
-  {ok, Conn1} = ws_client:start_link(Url),
-  AuthData = #{<<"event">> => <<"authenticate">>,
-               <<"data">> => #{<<"username">> => User1,
-                               <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"authenticated">>,
-         <<"data">> := PeerData1}} = ws_client:send(Conn1, AuthData),
-  #{<<"peer_id">> := Peer1} = PeerData1,
-
-  %% user 2 joins
-  {ok, Conn2} = ws_client:start_link(Url),
-  AuthData2 = #{<<"event">> => <<"authenticate">>,
-                <<"data">> => #{<<"username">> => User2,
-                                <<"password">> => <<"password">>}},
-  {ok, #{<<"event">> := <<"authenticated">>,
-         <<"data">> := PeerData2}} = ws_client:send(Conn2, AuthData2),
-  {ok, #{<<"event">> := <<"joined">>}} = ws_client:recv(Conn1),
-  #{<<"peer_id">> := Peer2} = PeerData2,
 
   %% user 3 joins
   {ok, Conn3} = ws_client:start_link(Url),
@@ -118,18 +77,23 @@ multiple_users(Config) ->
   {ok, #{<<"event">> := <<"joined">>}} = ws_client:recv(Conn1),
   {ok, #{<<"event">> := <<"joined">>}} = ws_client:recv(Conn2),
 
-  %% all receive broadcast
-  ws_client:send(Conn1, #{<<"event">> => <<"hello!">>}),
-  {ok, #{<<"event">> := <<"hello!">>,
-         <<"from">> := Peer1}} = ws_client:recv(Conn2),
-  {ok, #{<<"event">> := <<"hello!">>,
-         <<"from">> := Peer1}} = ws_client:recv(Conn3),
+  %% user 1 sends message, user 2 receives
+  ws_client:send(Conn1, #{<<"event">> => <<"hello!">>,
+                          <<"to">> => PeerId2}),
+  {ok, #{<<"event">> := <<"hello!">>}} = ws_client:recv(Conn2),
 
-  %% only peer receives when to: specified
-  ws_client:send(Conn1, #{<<"event">> => <<"hello!">>, <<"to">> => Peer2}),
-  {ok, #{<<"event">> := <<"hello!">>,
-         <<"from">> := Peer1}} = ws_client:recv(Conn2),
+  %% user 2 sends message, user 1 receives
+  ws_client:send(Conn2, #{<<"event">> => <<"bye!">>,
+                          <<"to">> => PeerId1}),
+  {ok, #{<<"event">> := <<"bye!">>}} = ws_client:recv(Conn1),
+
+  %% user 3 received no messages
   {error, timeout} = ws_client:recv(Conn3, 200),
+
+  %% user 2 leaves -> left
+  ws_client:stop(Conn2),
+  {ok, #{<<"event">> := <<"left">>}} = ws_client:recv(Conn1),
+  {ok, #{<<"event">> := <<"left">>}} = ws_client:recv(Conn3),
 
   ok.
 
