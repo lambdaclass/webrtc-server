@@ -1,15 +1,13 @@
 'use strict';
 
-var isInitiator = false;
-var isStarted = false;
-var localStream;
-var pc;
+let localStream;
+let peerId;
+const peers = {};
 
 var username = 'username';
 var password = 'password';
 
 var localVideo = document.querySelector('#localVideo');
-var remoteVideo = document.querySelector('#remoteVideo');
 
 const stunUrl = 'stun:' + window.location.hostname + ':3478';
 const turnUrl = 'turn:' + window.location.hostname + ':3478';
@@ -60,65 +58,73 @@ const wsUrl = 'wss://' + window.location.host + '/websocket/' + room;
 var socket;
 
 // helper to send ws messages with {event, data} structure
-function sendMessage(event, message) {
+function sendMessage(event, message, toPeer) {
   const payload = {
     event,
     data: message
   };
+  if (toPeer) {
+    payload.to = toPeer;
+  }
   console.log('Client sending message: ', event, message);
   socket.send(JSON.stringify(payload));
 }
 
 //// SOCKET EVENT LISTENERS
 
-// we're asssuming 1on1 conversations. when a second client joins then both
-// clients are connected => channel ready
+function authenticated (data) {
+  peerId = data.peer_id;
+  console.log('authenticated:', peerId);
+
+  // start RTC as initiator with previously existent peers
+  data.peers.forEach(function (otherPeer) {
+    startRTC(otherPeer, true);
+  });
+}
+
 function joined (data) {
   console.log('peer joined', data.peer_id);
-  if (data.peers.length === 0) {
-    isInitiator = true;
-  } else {
-    // both users connected, so now we can move to next step, intiate the RTC communication
-    startRTC();
-  }
+  // start RTC as receiver with newly joined peer
+  startRTC(data.peer_id, false);
 }
 
-function candidate(data) {
-  var candidate = new RTCIceCandidate({
-    sdpMLineIndex: data.label,
-    candidate: data.candidate
-  });
-  pc.addIceCandidate(candidate);
-}
-
-function offer (data) {
-  pc.setRemoteDescription(new RTCSessionDescription(data));
+function offer (data, fromPeer) {
+  const connection = peers[fromPeer].connection;
+  connection.setRemoteDescription(new RTCSessionDescription(data));
   console.log('Sending answer to peer.');
-  pc.createAnswer().then(
+  connection.createAnswer().then(
     function(sessionDescription) {
-      pc.setLocalDescription(sessionDescription);
-      sendMessage('answer', sessionDescription);
+      connection.setLocalDescription(sessionDescription);
+      sendMessage('answer', sessionDescription, fromPeer);
     },
     logEvent('Failed to create session description:')
   );
 }
 
-function answer (data) {
-  pc.setRemoteDescription(new RTCSessionDescription(data));
+function candidate(data, fromPeer) {
+  var candidate = new RTCIceCandidate({
+    sdpMLineIndex: data.label,
+    candidate: data.candidate
+  });
+  peers[fromPeer].connection.addIceCandidate(candidate);
 }
 
-function left () {
-  if (isStarted) {
-    console.log('Session terminated.');
-    isStarted = false;
-    pc.close();
-    pc = null;
-    remoteVideo.srcObject = undefined;
+function answer (data, fromPeer) {
+  peers[fromPeer].connection.setRemoteDescription(new RTCSessionDescription(data));
+}
 
-    // assumption: if other client leaves and this one stays, it becomes the initiator
-    // if another users attempts to join again
-    isInitiator = true;
-  }
+function left (data) {
+  // FIXME probably not getting the from here
+  console.log('Session terminated.');
+  const otherPeer = data.peer_id;
+  peers[otherPeer].connection.close();
+
+  // remove dom element
+  const element = document.getElementById(peers[otherPeer].element);
+  element.srcObject = undefined;
+  element.parentNode.removeChild(element);
+
+  delete peer[otherPeer];
 }
 
 /*
@@ -139,6 +145,7 @@ function connectSocket() {
   };
 
   const listeners = {
+    authenticated,
     joined,
     left,
     candidate,
@@ -151,7 +158,7 @@ function connectSocket() {
     console.log('Client received message:', data);
     const listener = listeners[data.event];
     if (listener) {
-      listener(data.data);
+      listener(data.data, data.from);
     } else {
       console.log('no listener for message', data.event);
     }
@@ -161,21 +168,24 @@ function connectSocket() {
 
 ////////////////////////////////////////////////////
 
-function startRTC() {
+function startRTC(peerId, isInitiator) {
   console.log('>>>>>> creating peer connection');
 
   try {
-    pc = new RTCPeerConnection(pcConfig);
-    pc.onicecandidate = handleIceCandidate;
-    pc.ontrack = handleRemoteStreamAdded;
-    pc.onremovestream = logEvent('Remote stream removed,');
-    console.log('Created RTCPeerConnnection');
+    const connection = new RTCPeerConnection(pcConfig);
 
-    pc.addStream(localStream);
-    isStarted = true;
+    connection.onicecandidate = getHandleIceCandidate(peerId);
+    connection.ontrack = getHandleRemoteStream(peerId);
+    connection.onremovestream = logEvent('Remote stream removed,');
+
+    connection.addStream(localStream);
+
+    peers[peerId] = {connection};
+
+    console.log('Created RTCPeerConnnection for', peerId);
 
     if (isInitiator) {
-      createOffer();
+      createOffer(peerId);
     }
   } catch (e) {
     console.log('Failed to create PeerConnection, exception: ' + e.message);
@@ -186,29 +196,46 @@ function startRTC() {
 
 //// PeerConnection handlers
 
-function handleIceCandidate(event) {
-  console.log('icecandidate event: ', event);
-  if (event.candidate) {
-    sendMessage('candidate', {
-      label: event.candidate.sdpMLineIndex,
-      id: event.candidate.sdpMid,
-      candidate: event.candidate.candidate
-    });
-  } else {
-    console.log('End of candidates.');
-  }
+function getHandleIceCandidate(peerId) {
+  return function(event) {
+    console.log('icecandidate event: ', event);
+    if (event.candidate) {
+      sendMessage('candidate', {
+        label: event.candidate.sdpMLineIndex,
+        id: event.candidate.sdpMid,
+        candidate: event.candidate.candidate
+      }, peerId);
+    } else {
+      console.log('End of candidates.');
+    }
+  };
 }
 
-function handleRemoteStreamAdded(event) {
-  console.log('Remote stream added.');
-  remoteVideo.srcObject = event.streams[0];
+function getHandleRemoteStream(peerId) {
+  return function(event) {
+    console.log('Remote stream added for peer', peerId);
+    const elementId = "video-" + peerId;
+
+    // this handler can be called multiple times per stream, only
+    // add a new video element once
+    if (!peers[peerId].element) {
+      const t = document.querySelector('#video-template');
+      t.content.querySelector('video').id = elementId;
+      const clone = document.importNode(t.content, true);
+      document.getElementById("videos").appendChild(clone);
+      peers[peerId].element = elementId;
+    }
+    // always set the srcObject to the latest stream
+    document.getElementById(elementId).srcObject = event.streams[0];
+  };
 }
 
-function createOffer() {
+function createOffer(peerId) {
   console.log('Sending offer to peer');
-  pc.createOffer(function(sessionDescription) {
-    pc.setLocalDescription(sessionDescription);
-    sendMessage('offer', sessionDescription);
+  const connection = peers[peerId].connection;
+  connection.createOffer(function(sessionDescription) {
+    connection.setLocalDescription(sessionDescription);
+    sendMessage('offer', sessionDescription, peerId);
   }, logEvent('createOffer() error:'));
 }
 
