@@ -128,7 +128,7 @@ join_room(Room, Username, PeerId) ->
   run_callback(join_callback, Room, Username, OtherNames),
 
   %% broadcast peer joined to the rest of the peers in the room
-  Message = reply_text(joined, #{peer_id => PeerId}),
+  Message = reply_text(joined, #{peer_id => PeerId, username => Username}),
   lists:foreach(fun({Pid, _}) -> Pid ! Message end, OtherMembers).
 
 run_callback(Type, Room, Username, CurrentUsers) ->

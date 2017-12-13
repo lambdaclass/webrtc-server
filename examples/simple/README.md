@@ -1,4 +1,4 @@
-# WebRTC example
+# WebRTC simple example
 
 Simple Cowboy application that serves an HTML client for WebRTC.
 Connections are established by two peers that enter in the same room URL.

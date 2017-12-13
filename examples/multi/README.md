@@ -1,8 +1,11 @@
-# WebRTC example
+# WebRTC multi-party example
 
-Simple Cowboy application that serves an HTML client for WebRTC.
-Connections are established by two peers that enter in the same room URL.
-The client connects to the signaling and ICE servers provided by webrtc_server.
+Cowboy application that serves an HTML client for WebRTC.
+An unlimited number of peers can join a conversation by entering the
+same room URL.
+A mesh topology is used, meaning that if there are N peers, each one
+will maintain N - 1 RTC peer connections. This is CPU intensive and
+will work with a low number of peers.
 
 ## Run in development
 
