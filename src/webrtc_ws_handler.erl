@@ -51,16 +51,19 @@ websocket_handle({text, Text}, State = #{authenticated := true,
                                          peer_id := ThisPeer}) ->
   lager:debug("Received text frame ~p", [Text]),
 
-  %% TODO reply error if `to` is missing
-  Message = #{to := OtherPeer} = json_decode(Text),
-  %% crash if room doesn't match
-  {Pid, {_Username, _PeerId, Room}} = syn:find_by_key(OtherPeer, with_meta),
+  case json_decode(Text) of
+    #{to := OtherPeer} = Message ->
+      %% crash if room doesn't match
+      {Pid, {_Username, _PeerId, Room}} = syn:find_by_key(OtherPeer, with_meta),
 
-  %% extend message with this peer id before sending
-  Message2 = Message#{from => ThisPeer},
-  Pid ! {text, json_encode(Message2)},
+      %% extend message with this peer id before sending
+      Message2 = Message#{from => ThisPeer},
+      Pid ! {text, json_encode(Message2)},
 
-  {ok, State};
+      {ok, State};
+    _ ->
+      {reply, reply_text(invalid_message), State}
+  end;
 
 websocket_handle(Frame, State) ->
   lager:warning("Received non text frame ~p~p", [Frame, State]),

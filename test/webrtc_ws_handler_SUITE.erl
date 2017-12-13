@@ -95,6 +95,9 @@ join_and_send_message(Config) ->
   {ok, #{<<"event">> := <<"left">>}} = ws_client:recv(Conn1),
   {ok, #{<<"event">> := <<"left">>}} = ws_client:recv(Conn3),
 
+  %% fails without `to` field
+  {ok, #{<<"event">> := <<"invalid_message">>}} = ws_client:send(Conn1, #{<<"event">> => <<"bye!">>}),
+
   ok.
 
 auth_failure(Config) ->
