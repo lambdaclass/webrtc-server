@@ -45,8 +45,8 @@ var pc = new RTCPeerConnection({
 });
 ```
 
-The [example directory](https://github.com/lambdaclass/webrtc-server/tree/master/example)
-contains a full Cowboy application using `webrtc_server` and a simple
+The [examples/simple](https://github.com/lambdaclass/webrtc-server/tree/master/examples/simple)
+directory contains a full Cowboy application using `webrtc_server` and a
 browser client that establishes a WebRTC connection using the
 Signaling and ICE servers.
 
@@ -82,16 +82,15 @@ track conversation state (such as when a call starts or ends), without
 needing extra work from the clients.
 
 ``` erlang
-{create_callback, {module, function}}
 {join_callback, {module, function}}
 {leave_callback, {module, function}}
 ```
 
-The three callbacks receive the same arguments:
+Both callbacks receive the same arguments:
 
 * Room: name of the room used to connect.
 * Username: username provided by the client executing the action.
-* OtherUsers: list of the rest of the usernames currently in the room.
+* OtherUsers = [{Username, PeerId}]: list of the rest of the usernames currently in the room.
 
 ### server configuration
 
@@ -107,6 +106,13 @@ The three callbacks receive the same arguments:
   `infinity` to disable idle timeouts.
 
 ## Signaling API reference
+
+The signaling API is used by web socket clients to exchange the
+necessary information to establish a WebRTC peer connection. See
+the
+[examples](https://github.com/lambdaclass/webrtc-server/tree/master/examples)
+for context on how this API is used.
+
 ### Authentication
 After connection, an authentication JSON message should be sent:
 
@@ -120,10 +126,71 @@ After connection, an authentication JSON message should be sent:
 }
 ```
 
-### Room messages
+The server will assign a `peer_id` to the client and reply:
 
-After authentication, any (non ping) message sent will be forwarded to
-the rest of the clients connected to the room.
+``` json
+{
+    "event": "authenticated",
+    "data": {
+        "peer_id": "bxCBrwyL3Ar7Nw=="
+    }
+}
+```
+
+The rest of the peers in the room will receive a `joined` event:
+
+``` json
+{
+    "event": "joined",
+    "data": {
+        "username": "john",
+        "peer_id": "bxCBrwyL3Ar7Nw=="
+    }
+}
+```
+
+Similarly, when a client leaves the room, the rest of the peers will
+receive a `left` event:
+
+``` json
+{
+    "event": "left",
+    "data": {
+        "username": "john",
+        "peer_id": "bxCBrwyL3Ar7Nw=="
+    }
+}
+```
+
+### Signaling messages
+
+After authentication, all messages sent by the client should be
+signaling messages addressed to a specific peer in the room, including a `to`
+field. The event and data are opaque to the server (they can be
+ice candidates, session descriptions, or whatever clients need to
+exchange). For example:
+
+``` json
+{
+    "event": "candidate",
+    "to": "458/53WAkeu+tQ==",
+    "data": {
+        ...
+    }
+}
+```
+
+The addressed peer will receive this payload:
+
+``` json
+{
+    "event": "candidate",
+    "from": "bxCBrwyL3Ar7Nw==",
+    "data": {
+        ...
+    }
+}
+```
 
 ### Ping
 To send a keepalive message to prevent idle connections to be droped

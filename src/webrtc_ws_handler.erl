@@ -21,42 +21,55 @@ websocket_init(State) ->
   timer:send_after(Time, check_auth),
   {ok, State}.
 
+%% not all ws clients can send a ping frame (namely, browsers can't)
+%% so we handle a ping text frame.
 websocket_handle({text, <<"ping">>}, State) ->
-  %% not all ws clients can send a ping frame (namely, browsers can't)
-  %% so we handle a ping text frame.
   {reply, {text, <<"pong">>}, State};
 
-websocket_handle({text, Text}, State = #{authenticated := false}) ->
+%% Before authentication, just expect the socket to send user/pass
+websocket_handle({text, Text}, State = #{authenticated := false, room := Room}) ->
    case authenticate(Text) of
      {success, Username} ->
        lager:debug("socket authenticated"),
-       State2 = State#{authenticated => true, username => Username},
-       Room = maps:get(room, State2),
-       CreatedOrJoined = join_room(Room, Username),
-       syn:publish(Room, reply_text(CreatedOrJoined)),
-       {ok, State2};
+
+       PeerId = peer_id(),
+       join_room(Room, Username, PeerId),
+
+       State2 = State#{authenticated => true,
+                       username => Username,
+                       peer_id => PeerId},
+
+       {reply, reply_text(authenticated, #{peer_id => PeerId}), State2};
      Reason ->
        lager:debug("bad authentication: ~p ~p", [Reason, Text]),
        {reply, reply_text(unauthorized), State}
    end;
 
-websocket_handle({text, Text}, State = #{authenticated := true}) ->
+%% After authentication, any message should be targeted to a specific peer
+websocket_handle({text, Text}, State = #{authenticated := true,
+                                         room := Room,
+                                         peer_id := ThisPeer}) ->
   lager:debug("Received text frame ~p", [Text]),
 
-  %% send to all other pids in group
-  Room = maps:get(room, State),
-  Members = syn:get_members(Room),
-  Self = self(),
-  Send = fun(Pid) when Pid /= Self -> Pid ! {text, Text};
-            (_Pid) -> ok
-         end,
+  case json_decode(Text) of
+    #{to := OtherPeer} = Message ->
+      %% crash if room doesn't match
+      {Pid, {_Username, _PeerId, Room}} = syn:find_by_key(OtherPeer, with_meta),
 
-  lists:foreach(Send, Members),
-  {ok, State};
+      %% extend message with this peer id before sending
+      Message2 = Message#{from => ThisPeer},
+      Pid ! {text, json_encode(Message2)},
+
+      {ok, State};
+    _ ->
+      {reply, reply_text(invalid_message), State}
+  end;
+
 websocket_handle(Frame, State) ->
   lager:warning("Received non text frame ~p~p", [Frame, State]),
   {ok, State}.
 
+%% If user/password not sent before ws_auth_delay, disconnect
 websocket_info(check_auth, State = #{authenticated := false}) ->
   lager:debug("disconnecting unauthenticated socket"),
   {stop, State};
@@ -65,6 +78,7 @@ websocket_info(check_auth, State) ->
   %% already authenticated, do nothing
   {ok, State};
 
+%% incoming test frame, send to the client socket
 websocket_info({text, Text}, State = #{authenticated := true}) ->
   lager:debug("Sending to client ~p", [Text]),
   {reply, {text, Text}, State};
@@ -73,23 +87,17 @@ websocket_info(Info, State) ->
   lager:warning("Received unexpected info ~p~p", [Info, State]),
   {ok, State}.
 
-terminate(_Reason, _Req, #{room := Room, username := Username}) ->
-  OtherUsers = [Name || {Pid, Name} <- syn:get_members(Room, with_meta), Pid /= self()],
+terminate(_Reason, _Req, #{room := Room, username := Username, peer_id := PeerId}) ->
+  OtherUsers = [Name || {Pid, {Name, _PeerId}} <- syn:get_members(Room, with_meta), Pid /= self()],
   run_callback(leave_callback, Room, Username, OtherUsers),
-  syn:publish(Room, reply_text(left, #{username => Username})),
+  syn:publish(Room, reply_text(left, #{username => Username, peer_id => PeerId})),
   ok;
 terminate(_Reason, _Req, _State) ->
   ok.
 
 %%% internal
-reply_text(Event) ->
-  {text, jsx:encode(#{event => Event})}.
-
-reply_text(Event, Data) ->
-  {text, jsx:encode(#{event => Event, data => Data})}.
-
 authenticate(Data) ->
-  try jsx:decode(Data, [return_maps, {labels, attempt_atom}]) of
+  try json_decode(Data) of
     #{event := <<"authenticate">>, data := #{username := User, password := Password}} ->
       case safe_auth(User) of
         Password -> {success, User};
@@ -102,18 +110,6 @@ authenticate(Data) ->
       invalid_json
   end.
 
-join_room(Room, Username) ->
-  syn:join(Room, self(), Username),
-  OtherUsers = [Name || {Pid, Name} <- syn:get_members(Room, with_meta), Pid /= self()],
-  case length(OtherUsers) of
-    0 ->
-      run_callback(create_callback, Room, Username, OtherUsers),
-      created;
-    _ ->
-      run_callback(join_callback, Room, Username, OtherUsers),
-      joined
-  end.
-
 safe_auth(Username) ->
   {ok, {AuthMod, AuthFun}} = application:get_env(webrtc_server, auth_fun),
   try
@@ -122,6 +118,18 @@ safe_auth(Username) ->
     _:_ ->
       auth_error
   end.
+
+join_room(Room, Username, PeerId) ->
+  OtherMembers = syn:get_members(Room, with_meta),
+  syn:register(PeerId, self(), {Username, PeerId, Room}),
+  syn:join(Room, self(), {Username, PeerId}),
+
+  OtherNames = [Name || {_, {Name, _Peer}} <- OtherMembers],
+  run_callback(join_callback, Room, Username, OtherNames),
+
+  %% broadcast peer joined to the rest of the peers in the room
+  Message = reply_text(joined, #{peer_id => PeerId, username => Username}),
+  lists:foreach(fun({Pid, _}) -> Pid ! Message end, OtherMembers).
 
 run_callback(Type, Room, Username, CurrentUsers) ->
   case application:get_env(webrtc_server, Type) of
@@ -136,3 +144,18 @@ run_callback(Type, Room, Username, CurrentUsers) ->
     undefined ->
       ok
   end.
+
+reply_text(Event) ->
+  {text, json_encode(#{event => Event})}.
+
+reply_text(Event, Data) ->
+  {text, json_encode(#{event => Event, data => Data})}.
+
+peer_id() ->
+  base64:encode(crypto:strong_rand_bytes(10)).
+
+json_decode(Data) ->
+  jsx:decode(Data, [return_maps, {labels, attempt_atom}]).
+
+json_encode(Data) ->
+  jsx:encode(Data).

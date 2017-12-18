@@ -1,9 +1,8 @@
 'use strict';
 
-var isInitiator = false;
-var isStarted = false;
 var localStream;
 var pc;
+var remotePeerId;
 
 var username = 'username';
 var password = 'password';
@@ -63,28 +62,27 @@ var socket;
 function sendMessage(event, message) {
   const payload = {
     event,
-    data: message
+    data: message,
+    to: remotePeerId
   };
-  console.log('Client sending message: ', event, message);
+  console.log('Client sending message: ', payload);
   socket.send(JSON.stringify(payload));
 }
 
 //// SOCKET EVENT LISTENERS
 
-// when theres one client connected, server consider the rooms as 'created'
-// thus, if a client gets created, it's the initiator
-function created () {
-  console.log('Created room, this client is initiator');
-  isInitiator = true;
+function authenticated (data) {
+  console.log('authenticated:', data.peer_id);
 }
 
-// we're asssuming 1on1 conversations. when a client gets 'joined', then both
+// we're asssuming 1on1 conversations. when a second client joins then both
 // clients are connected => channel ready
-function joined () {
-  console.log('joined: ' + room);
+function joined(data) {
+  console.log('peer joined', data.peer_id);
+  remotePeerId = data.peer_id;
 
-  // both users connected, so now we can move to next step, intiate the RTC communication
-  startRTC();
+  // this is the initiator
+  startRTC(true);
 }
 
 function candidate(data) {
@@ -95,7 +93,11 @@ function candidate(data) {
   pc.addIceCandidate(candidate);
 }
 
-function offer (data) {
+function offer (data, fromPeer) {
+  // received offer from the other peer, start as receiver
+  remotePeerId = fromPeer;
+  startRTC(false);
+
   pc.setRemoteDescription(new RTCSessionDescription(data));
   console.log('Sending answer to peer.');
   pc.createAnswer().then(
@@ -112,17 +114,13 @@ function answer (data) {
 }
 
 function left () {
-  if (isStarted) {
-    console.log('Session terminated.');
-    isStarted = false;
+  console.log('Session terminated.');
+  if (pc) {
     pc.close();
     pc = null;
-    remoteVideo.srcObject = undefined;
-
-    // assumption: if other client leaves and this one stays, it becomes the initiator
-    // if another users attempts to join again
-    isInitiator = true;
+    remotePeerId = undefined;
   }
+  remoteVideo.srcObject = undefined;
 }
 
 /*
@@ -143,7 +141,7 @@ function connectSocket() {
   };
 
   const listeners = {
-    created,
+    authenticated,
     joined,
     left,
     candidate,
@@ -156,7 +154,7 @@ function connectSocket() {
     console.log('Client received message:', data);
     const listener = listeners[data.event];
     if (listener) {
-      listener(data.data);
+      listener(data.data, data.from);
     } else {
       console.log('no listener for message', data.event);
     }
@@ -166,7 +164,7 @@ function connectSocket() {
 
 ////////////////////////////////////////////////////
 
-function startRTC() {
+function startRTC(isInitiator) {
   console.log('>>>>>> creating peer connection');
 
   try {
@@ -177,7 +175,6 @@ function startRTC() {
     console.log('Created RTCPeerConnnection');
 
     pc.addStream(localStream);
-    isStarted = true;
 
     if (isInitiator) {
       createOffer();
