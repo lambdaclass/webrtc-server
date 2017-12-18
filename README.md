@@ -210,7 +210,7 @@ On debian it's solved by installing libssl-dev:
 sudo apt-get install libssl-dev
 ```
 
-On macOS it's solved by exporting some openssl flags:
+On macOS it's solved by exporting the following openssl flags:
 
 ```
 export LDFLAGS="-L/usr/local/opt/openssl/lib"
