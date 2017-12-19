@@ -138,8 +138,10 @@ run_callback(Type, Room, Username, CurrentUsers) ->
         Module:Function(Room, Username, CurrentUsers)
       catch
         ErrorType:Error ->
-          lager:warning("Error running ~p callback ~p/~p: ~p ~p",
-                        [Type, Room, Username, ErrorType, Error])
+          lager:error(
+            "~nError running ~p ~p ~p:~s",
+            [Type, Room, Username, lager:pr_stacktrace(erlang:get_stacktrace(),
+                                                       {ErrorType, Error})])
       end;
     undefined ->
       ok
