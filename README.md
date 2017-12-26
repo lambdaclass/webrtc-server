@@ -206,7 +206,7 @@ connected peers from the server:
   for the peers connected to `Room`.
 * `webrtc_server:publish(Room, Event, Data)`: send a JSON message to
   all connected peers in `Room`.
-* `webrtc_server:publish(PeerId, Event, Data)`: send a JSON message to
+* `webrtc_server:send(PeerId, Event, Data)`: send a JSON message to
   the peers identified by `PeerId`.
 
 
