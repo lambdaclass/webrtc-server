@@ -19,7 +19,8 @@ all() ->
    join_and_send_message,
    auth_failure,
    callbacks,
-   ping
+   ping,
+   server_api
   ].
 
 init_per_suite(Config) ->
@@ -172,6 +173,49 @@ ping(Config) ->
                                <<"password">> => <<"password">>}},
   {ok, #{<<"event">> := <<"authenticated">>}} = ws_client:send(Conn1, AuthData),
   {ok, <<"pong">>} = ws_client:ping(Conn1),
+  ok.
+
+server_api(Config) ->
+  %% connect/auth two users
+  Url = proplists:get_value(url, Config),
+  Room = proplists:get_value(room, Config),
+  User1 = random_name(<<"User1">>),
+  User2 = random_name(<<"User2">>),
+
+  %% user 1 joins and auths -> created
+  {ok, Conn1} = ws_client:start_link(Url),
+  AuthData = #{<<"event">> => <<"authenticate">>,
+               <<"data">> => #{<<"username">> => User1,
+                               <<"password">> => <<"password">>}},
+  {ok, #{<<"event">> := <<"authenticated">>,
+         <<"data">> := #{<<"peer_id">> := PeerId1}}} = ws_client:send(Conn1, AuthData),
+
+  %% user 2 joins and auths -> joined
+  {ok, Conn2} = ws_client:start_link(Url),
+  AuthData2 = #{<<"event">> => <<"authenticate">>,
+                <<"data">> => #{<<"username">> => User2,
+                                <<"password">> => <<"password">>}},
+  {ok, #{<<"event">> := <<"authenticated">>,
+         <<"data">> := #{<<"peer_id">> := PeerId2}}} = ws_client:send(Conn2, AuthData2),
+  {ok, #{<<"event">> := <<"joined">>,
+         <<"data">> := #{<<"peer_id">> := PeerId2}}} = ws_client:recv(Conn1),
+
+  %% get peers
+  [{PeerId1, User1}, {PeerId2, User2}] = webrtc_server:peers(Room),
+
+  %% publish, both peers receive
+  {ok, 2} = webrtc_server:publish(Room, greeting, #{<<"hello">> => <<"world">>}),
+  {ok, #{<<"event">> := <<"greeting">>,
+         <<"data">> := #{<<"hello">> := <<"world">>}}} = ws_client:recv(Conn1),
+  {ok, #{<<"event">> := <<"greeting">>,
+         <<"data">> := #{<<"hello">> := <<"world">>}}} = ws_client:recv(Conn2),
+
+  %% send, peer receives
+  ok = webrtc_server:send(PeerId2, salutation, #{<<"goodbye">> => <<"world">>}),
+  {error, timeout} = ws_client:recv(Conn1, 200),
+  {ok, #{<<"event">> := <<"salutation">>,
+         <<"data">> := #{<<"goodbye">> := <<"world">>}}} = ws_client:recv(Conn2, 200),
+
   ok.
 
 %% internal
