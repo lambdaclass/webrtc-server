@@ -197,6 +197,19 @@ To send a keepalive message to prevent idle connections to be droped
 by the server, send a plain text frame of value `ping`. The server
 will respond with `pong`.
 
+## Server API
+
+The `webrtc_server` module provides a few functions to interact with
+connected peers from the server:
+
+* `webrtc_server:peers(Room)`: return a list of `{PeerId, Username}`
+  for the peers connected to `Room`.
+* `webrtc_server:publish(Room, Event, Data)`: send a JSON message to
+  all connected peers in `Room`.
+* `webrtc_server:publish(PeerId, Event, Data)`: send a JSON message to
+  the peers identified by `PeerId`.
+
+
 ## Troubleshooting
 ### openssl error during compilation
 
