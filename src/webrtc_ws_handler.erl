@@ -89,9 +89,9 @@ websocket_info(Info, State) ->
 
 terminate(_Reason, _Req, #{room := Room, username := Username, peer_id := PeerId}) ->
   OtherUsers = [Name || {Pid, {Name, _PeerId}} <- syn:get_members(Room, with_meta), Pid /= self()],
-  run_callback(leave_callback, Room, Username, OtherUsers),
   syn:publish(Room, webrtc_utils:text_event(left, #{username => Username,
                                                     peer_id => PeerId})),
+  run_callback(leave_callback, Room, Username, OtherUsers),
   ok;
 terminate(_Reason, _Req, _State) ->
   ok.
@@ -125,13 +125,13 @@ join_room(Room, Username, PeerId) ->
   syn:register(PeerId, self(), {Username, PeerId, Room}),
   syn:join(Room, self(), {Username, PeerId}),
 
-  OtherNames = [Name || {_, {Name, _Peer}} <- OtherMembers],
-  run_callback(join_callback, Room, Username, OtherNames),
-
   %% broadcast peer joined to the rest of the peers in the room
   Message = webrtc_utils:text_event(joined, #{peer_id => PeerId,
                                               username => Username}),
-  lists:foreach(fun({Pid, _}) -> Pid ! Message end, OtherMembers).
+  lists:foreach(fun({Pid, _}) -> Pid ! Message end, OtherMembers),
+
+  OtherNames = [Name || {_, {Name, _Peer}} <- OtherMembers],
+  run_callback(join_callback, Room, Username, OtherNames).
 
 run_callback(Type, Room, Username, CurrentUsers) ->
   case application:get_env(webrtc_server, Type) of
